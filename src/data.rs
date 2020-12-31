@@ -150,8 +150,19 @@ pub struct SpiceCard {
     pub texture: String,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct StormCard {
     pub val: i32
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct FactionPredictionCard {
+    pub faction: Faction
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct TurnPredictionCard {
+    pub turn: i32
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize)]

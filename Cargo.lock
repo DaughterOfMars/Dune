@@ -399,15 +399,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_fly_camera"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0d997c3f19a7eb94f06f483670370ac8e452b84383c1a8ddca047f185dde870"
-dependencies = [
- "bevy",
-]
-
-[[package]]
 name = "bevy_gilrs"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1341,7 +1332,6 @@ name = "dune"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "bevy_fly_camera",
  "cgmath",
  "collision",
  "rand 0.8.0",

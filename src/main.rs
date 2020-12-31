@@ -12,8 +12,6 @@ use std::{collections::HashMap, fs::File};
 
 use rand::{seq::SliceRandom, Rng};
 
-use bevy_fly_camera::{FlyCamera, FlyCameraPlugin};
-
 use std::f32::consts::PI;
 
 use collision::{prelude::*, primitive::Primitive3, Aabb3, Ray};
@@ -32,7 +30,6 @@ fn main() {
         })
         .add_resource(ActionStack(Vec::new()))
         .add_plugins(DefaultPlugins)
-        .add_plugin(FlyCameraPlugin)
         .add_startup_system(init.system())
         .add_system(handle_actions.system())
         .add_system(input.system())
@@ -55,6 +52,60 @@ enum Phase {
     Collection,
     Control,
     EndGame,
+}
+
+impl Phase {
+    fn next(&self) -> Self {
+        match self {
+            Phase::Setup { subphase } => match subphase {
+                SetupSubPhase::ChooseFactions => Phase::Setup {
+                    subphase: SetupSubPhase::Prediction,
+                },
+                SetupSubPhase::Prediction => Phase::Setup {
+                    subphase: SetupSubPhase::AtStart,
+                },
+                SetupSubPhase::AtStart => Phase::Setup {
+                    subphase: SetupSubPhase::DealTraitors,
+                },
+                SetupSubPhase::DealTraitors => Phase::Setup {
+                    subphase: SetupSubPhase::PickTraitors,
+                },
+                SetupSubPhase::PickTraitors => Phase::Setup {
+                    subphase: SetupSubPhase::DealTreachery,
+                },
+                SetupSubPhase::DealTreachery => Phase::Storm {
+                    subphase: StormSubPhase::Reveal,
+                },
+            },
+            Phase::Storm { subphase } => match subphase {
+                StormSubPhase::Reveal => Phase::Storm {
+                    subphase: StormSubPhase::WeatherControl,
+                },
+                StormSubPhase::WeatherControl => Phase::Storm {
+                    subphase: StormSubPhase::FamilyAtomics,
+                },
+                StormSubPhase::FamilyAtomics => Phase::Storm {
+                    subphase: StormSubPhase::MoveStorm,
+                },
+                StormSubPhase::MoveStorm => Phase::SpiceBlow,
+            },
+            Phase::SpiceBlow => Phase::Nexus,
+            Phase::Nexus => Phase::Bidding,
+            Phase::Bidding => Phase::Revival,
+            Phase::Revival => Phase::Movement,
+            Phase::Movement => Phase::Battle,
+            Phase::Battle => Phase::Collection,
+            Phase::Collection => Phase::Control,
+            Phase::Control => Phase::Storm {
+                subphase: StormSubPhase::Reveal,
+            },
+            Phase::EndGame => Phase::EndGame,
+        }
+    }
+
+    fn advance(&mut self) {
+        *self = self.next();
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -106,6 +157,11 @@ struct ClickAction {
     action: Action,
 }
 
+struct Prediction {
+    faction: Option<Faction>,
+    turn: Option<i32>,
+}
+
 #[derive(Clone)]
 enum Action {
     // Allows a player to choose between multiple actions
@@ -118,7 +174,15 @@ enum Action {
         actions: Vec<Action>,
     },
     MakePrediction {
-        player: Entity,
+        factions_shown: bool,
+        faction_picked: bool,
+        turns_shown: bool,
+        turn_picked: bool,
+        animation_time: f32,
+        current_time: f32,
+        src: Vec2,
+        faction_dests: Vec<Vec2>,
+        turn_dests: Vec<Vec2>,
     },
     PlaceFreeTroops {
         player: Entity,
@@ -150,6 +214,43 @@ impl Action {
             dest,
             remaining_time: time,
             total_time: time,
+        }
+    }
+
+    fn make_prediction(time: f32) -> Self {
+        Action::MakePrediction {
+            factions_shown: false,
+            faction_picked: false,
+            turns_shown: false,
+            turn_picked: false,
+            animation_time: time,
+            current_time: 0.0,
+            src: (1.5, -1.5).into(),
+            faction_dests: vec![
+                (-0.5, 0.5).into(),
+                (0.0, 0.5).into(),
+                (0.5, 0.5).into(),
+                (-0.5, -0.5).into(),
+                (0.0, -0.5).into(),
+                (0.5, -0.5).into(),
+            ],
+            turn_dests: vec![
+                (-0.8, 0.6).into(),
+                (-0.4, 0.6).into(),
+                (0.0, 0.6).into(),
+                (0.4, 0.6).into(),
+                (0.8, 0.6).into(),
+                (-0.8, 0.0).into(),
+                (-0.4, 0.0).into(),
+                (0.0, 0.0).into(),
+                (0.4, 0.0).into(),
+                (0.8, 0.0).into(),
+                (-0.8, -0.6).into(),
+                (-0.4, -0.6).into(),
+                (0.0, -0.6).into(),
+                (0.4, -0.6).into(),
+                (0.8, -0.6).into(),
+            ],
         }
     }
 }
@@ -210,6 +311,10 @@ impl ActionStack {
 
     fn len(&self) -> usize {
         self.0.len()
+    }
+
+    fn extend<T: IntoIterator<Item = Action>>(&mut self, iter: T) {
+        self.0.extend(iter);
     }
 }
 
@@ -347,32 +452,37 @@ fn init(
     let shield_face = asset_server.get_handle("shield.gltf#Mesh0/Primitive1");
     let shield_back = asset_server.get_handle("shield.gltf#Mesh0/Primitive2");
 
+    let card_face = asset_server.get_handle("card.gltf#Mesh0/Primitive0");
+    let card_back = asset_server.get_handle("card.gltf#Mesh0/Primitive1");
+
+    let prediction_back_texture = asset_server.get_handle("treachery/treachery_back.png");
+    let prediction_back_material = materials.add(StandardMaterial {
+        albedo_texture: Some(prediction_back_texture),
+        ..Default::default()
+    });
+
     info.play_order = info
         .factions_in_play
         .iter()
         .map(|&faction| {
-            let front_texture = asset_server.get_handle(match faction {
-                Faction::Atreides => "shields/at_shield_front.png",
-                Faction::Harkonnen => "shields/hk_shield_front.png",
-                Faction::Emperor => "shields/em_shield_front.png",
-                Faction::SpacingGuild => "shields/sg_shield_front.png",
-                Faction::Fremen => "shields/fr_shield_front.png",
-                Faction::BeneGesserit => "shields/bg_shield_front.png",
-            });
-            let back_texture = asset_server.get_handle(match faction {
-                Faction::Atreides => "shields/at_shield_back.png",
-                Faction::Harkonnen => "shields/hk_shield_back.png",
-                Faction::Emperor => "shields/em_shield_back.png",
-                Faction::SpacingGuild => "shields/sg_shield_back.png",
-                Faction::Fremen => "shields/fr_shield_back.png",
-                Faction::BeneGesserit => "shields/bg_shield_back.png",
-            });
-            let front_material = materials.add(StandardMaterial {
-                albedo_texture: Some(front_texture),
+            let faction_code = match faction {
+                Faction::Atreides => "at",
+                Faction::Harkonnen => "hk",
+                Faction::Emperor => "em",
+                Faction::SpacingGuild => "sg",
+                Faction::Fremen => "fr",
+                Faction::BeneGesserit => "bg",
+            };
+            let shield_front_texture = asset_server
+                .get_handle(format!("shields/{}_shield_front.png", faction_code).as_str());
+            let shield_back_texture = asset_server
+                .get_handle(format!("shields/{}_shield_back.png", faction_code).as_str());
+            let shield_front_material = materials.add(StandardMaterial {
+                albedo_texture: Some(shield_front_texture),
                 ..Default::default()
             });
-            let back_material = materials.add(StandardMaterial {
-                albedo_texture: Some(back_texture),
+            let shield_back_material = materials.add(StandardMaterial {
+                albedo_texture: Some(shield_back_texture),
                 ..Default::default()
             });
             commands
@@ -398,23 +508,94 @@ fn init(
                 .with_children(|parent| {
                     parent.spawn(PbrBundle {
                         mesh: shield_face.clone(),
-                        material: front_material,
+                        material: shield_front_material,
                         ..Default::default()
                     });
                     parent.spawn(PbrBundle {
                         mesh: shield_back.clone(),
-                        material: back_material,
+                        material: shield_back_material,
                         ..Default::default()
                     });
                 });
+            let prediction_front_texture = asset_server
+                .get_handle(format!("predictions/prediction_{}.png", faction_code).as_str());
+            let prediction_front_material = materials.add(StandardMaterial {
+                albedo_texture: Some(prediction_front_texture),
+                ..Default::default()
+            });
             commands
-                .spawn((Player::new(faction, &data.leaders),))
-                .current_entity()
-                .unwrap()
+                .spawn((
+                    Unique {
+                        faction: Faction::BeneGesserit,
+                    },
+                    FactionPredictionCard { faction },
+                    Transform::default(),
+                    GlobalTransform::default(),
+                    Visible {
+                        is_visible: false,
+                        ..Default::default()
+                    },
+                ))
+                .with_children(|parent| {
+                    parent.spawn(PbrBundle {
+                        mesh: card_face.clone(),
+                        material: prediction_front_material,
+                        ..Default::default()
+                    });
+                    parent.spawn(PbrBundle {
+                        mesh: card_back.clone(),
+                        material: prediction_back_material.clone(),
+                        ..Default::default()
+                    });
+                });
+            commands.spawn((Player::new(faction, &data.leaders),));
+
+            if faction == Faction::BeneGesserit {
+                commands.with(Prediction {
+                    faction: None,
+                    turn: None,
+                });
+            }
+
+            commands.current_entity().unwrap()
         })
         .collect();
 
     info.play_order.shuffle(&mut rng);
+
+    (1..=15).for_each(|turn| {
+        let prediction_front_texture =
+            asset_server.get_handle(format!("predictions/prediction_t{}.png", turn).as_str());
+        let prediction_front_material = materials.add(StandardMaterial {
+            albedo_texture: Some(prediction_front_texture),
+            ..Default::default()
+        });
+        commands
+            .spawn((
+                Unique {
+                    faction: Faction::BeneGesserit,
+                },
+                TurnPredictionCard { turn },
+                Transform::default(),
+                GlobalTransform::default(),
+                Visible {
+                    is_visible: false,
+                    ..Default::default()
+                },
+            ))
+            .with_children(|parent| {
+                parent.spawn(PbrBundle {
+                    mesh: card_face.clone(),
+                    material: prediction_front_material,
+                    ..Default::default()
+                });
+                parent.spawn(PbrBundle {
+                    mesh: card_back.clone(),
+                    material: prediction_back_material.clone(),
+                    ..Default::default()
+                });
+            });
+    });
 
     resources.spice_bank.extend(
         (0..50)
@@ -426,12 +607,9 @@ fn init(
 
     commands.spawn(());
 
-    let card_face = asset_server.get_handle("card.gltf#Mesh0/Primitive0");
-    let card_back = asset_server.get_handle("card.gltf#Mesh0/Primitive1");
-
-    let back_texture = asset_server.get_handle("treachery/treachery_back.png");
-    let back_material = materials.add(StandardMaterial {
-        albedo_texture: Some(back_texture),
+    let treachery_back_texture = asset_server.get_handle("treachery/treachery_back.png");
+    let treachery_back_material = materials.add(StandardMaterial {
+        albedo_texture: Some(treachery_back_texture),
         ..Default::default()
     });
 
@@ -440,11 +618,10 @@ fn init(
         .iter()
         .enumerate()
         .map(|(i, card)| {
-            let front_texture = asset_server.get_handle(
-                format!("treachery/treachery_{}.png", { card.texture.as_str() }).as_str(),
-            );
-            let front_material = materials.add(StandardMaterial {
-                albedo_texture: Some(front_texture),
+            let treachery_front_texture = asset_server
+                .get_handle(format!("treachery/treachery_{}.png", card.texture.as_str()).as_str());
+            let treachery_front_material = materials.add(StandardMaterial {
+                albedo_texture: Some(treachery_front_texture),
                 ..Default::default()
             });
 
@@ -461,12 +638,12 @@ fn init(
                 .with_children(|parent| {
                     parent.spawn(PbrBundle {
                         mesh: card_face.clone(),
-                        material: front_material,
+                        material: treachery_front_material,
                         ..Default::default()
                     });
                     parent.spawn(PbrBundle {
                         mesh: card_back.clone(),
-                        material: back_material.clone(),
+                        material: treachery_back_material.clone(),
                         ..Default::default()
                     });
                 })
@@ -476,9 +653,9 @@ fn init(
         .collect();
     resources.treachery_deck.shuffle(&mut rng);
 
-    let back_texture = asset_server.get_handle("traitor/traitor_back.png");
-    let back_material = materials.add(StandardMaterial {
-        albedo_texture: Some(back_texture),
+    let traitor_back_texture = asset_server.get_handle("traitor/traitor_back.png");
+    let traitor_back_material = materials.add(StandardMaterial {
+        albedo_texture: Some(traitor_back_texture),
         ..Default::default()
     });
 
@@ -487,10 +664,10 @@ fn init(
         .iter()
         .enumerate()
         .map(|(i, card)| {
-            let front_texture = asset_server
-                .get_handle(format!("traitor/traitor_{}.png", { card.texture.as_str() }).as_str());
-            let front_material = materials.add(StandardMaterial {
-                albedo_texture: Some(front_texture),
+            let traitor_front_texture = asset_server
+                .get_handle(format!("traitor/traitor_{}.png", card.texture.as_str()).as_str());
+            let traitor_front_material = materials.add(StandardMaterial {
+                albedo_texture: Some(traitor_front_texture),
                 ..Default::default()
             });
 
@@ -504,12 +681,12 @@ fn init(
                 .with_children(|parent| {
                     parent.spawn(PbrBundle {
                         mesh: card_face.clone(),
-                        material: front_material,
+                        material: traitor_front_material,
                         ..Default::default()
                     });
                     parent.spawn(PbrBundle {
                         mesh: card_back.clone(),
-                        material: back_material.clone(),
+                        material: traitor_back_material.clone(),
                         ..Default::default()
                     });
                 })
@@ -519,9 +696,9 @@ fn init(
         .collect();
     resources.traitor_deck.shuffle(&mut rng);
 
-    let back_texture = asset_server.get_handle("spice/spice_back.png");
-    let back_material = materials.add(StandardMaterial {
-        albedo_texture: Some(back_texture),
+    let spice_back_texture = asset_server.get_handle("spice/spice_back.png");
+    let spice_back_material = materials.add(StandardMaterial {
+        albedo_texture: Some(spice_back_texture),
         ..Default::default()
     });
 
@@ -530,10 +707,10 @@ fn init(
         .iter()
         .enumerate()
         .map(|(i, card)| {
-            let front_texture = asset_server
-                .get_handle(format!("spice/spice_{}.png", { card.texture.as_str() }).as_str());
-            let front_material = materials.add(StandardMaterial {
-                albedo_texture: Some(front_texture),
+            let spice_front_texture = asset_server
+                .get_handle(format!("spice/spice_{}.png", card.texture.as_str()).as_str());
+            let spice_front_material = materials.add(StandardMaterial {
+                albedo_texture: Some(spice_front_texture),
                 ..Default::default()
             });
 
@@ -547,12 +724,12 @@ fn init(
                 .with_children(|parent| {
                     parent.spawn(PbrBundle {
                         mesh: card_face.clone(),
-                        material: front_material,
+                        material: spice_front_material,
                         ..Default::default()
                     });
                     parent.spawn(PbrBundle {
                         mesh: card_back.clone(),
-                        material: back_material.clone(),
+                        material: spice_back_material.clone(),
                         ..Default::default()
                     });
                 })
@@ -562,18 +739,18 @@ fn init(
         .collect();
     resources.spice_deck.shuffle(&mut rng);
 
-    let back_texture = asset_server.get_handle("storm/storm_back.png");
-    let back_material = materials.add(StandardMaterial {
-        albedo_texture: Some(back_texture),
+    let storm_back_texture = asset_server.get_handle("storm/storm_back.png");
+    let storm_back_material = materials.add(StandardMaterial {
+        albedo_texture: Some(storm_back_texture),
         ..Default::default()
     });
 
     resources.storm_deck = (1..7)
         .map(|val| {
-            let front_texture =
-                asset_server.get_handle(format!("storm/storm_{}.png", { val }).as_str());
-            let front_material = materials.add(StandardMaterial {
-                albedo_texture: Some(front_texture),
+            let storm_front_texture =
+                asset_server.get_handle(format!("storm/storm_{}.png", val).as_str());
+            let storm_front_material = materials.add(StandardMaterial {
+                albedo_texture: Some(storm_front_texture),
                 ..Default::default()
             });
 
@@ -590,12 +767,12 @@ fn init(
                 .with_children(|parent| {
                     parent.spawn(PbrBundle {
                         mesh: card_face.clone(),
-                        material: front_material,
+                        material: storm_front_material,
                         ..Default::default()
                     });
                     parent.spawn(PbrBundle {
                         mesh: card_back.clone(),
-                        material: back_material.clone(),
+                        material: storm_back_material.clone(),
                         ..Default::default()
                     });
                 })
@@ -634,51 +811,136 @@ fn input(
     keyboard_input: Res<Input<KeyCode>>,
     cameras: Query<(&Transform, &Camera)>,
     colliders: Query<(&Collider, &ClickAction)>,
+    mut predictions: Query<&mut Prediction>,
+    prediction_cards: QuerySet<(Query<&FactionPredictionCard>, Query<&TurnPredictionCard>)>,
 ) {
-    if stack.is_empty() {
-        if mouse_input.just_pressed(MouseButton::Left) {
-            if let Some((transform, camera)) = cameras.iter().next() {
-                if let Some(window) = windows.get_primary() {
-                    if let Some(pos) = window.cursor_position() {
-                        let ss_pos = Vec2::new(
-                            2.0 * (pos.x / window.physical_width() as f32) - 1.0,
-                            2.0 * (pos.y / window.physical_height() as f32) - 1.0,
-                        );
-                        let mut p0 = ss_pos.extend(0.0).extend(1.0);
-                        let mut p1 = ss_pos.extend(1.0).extend(1.0);
-                        p0 = transform.compute_matrix() * camera.projection_matrix.inverse() * p0;
-                        p0 /= p0.w;
-                        p1 = transform.compute_matrix() * camera.projection_matrix.inverse() * p1;
-                        p1 /= p1.w;
-                        let dir = (p1 - p0).normalize();
-                        let ray = Ray::<f32, Point3<f32>, Vector3<f32>>::new(
-                            (p0.x, p0.y, p0.z).into(),
-                            (dir.x, dir.y, dir.z).into(),
-                        );
-                        let (mut closest_intersection, mut closest_action) = (None, None);
-                        for (collider, action) in colliders.iter() {
-                            if let Some(intersection) = ray.intersection(&collider.aabb) {
-                                if closest_intersection.is_none() {
-                                    closest_intersection = Some(intersection);
-                                    closest_action = Some(action);
-                                } else {
-                                    if ray.origin.distance(closest_intersection.unwrap())
-                                        > ray.origin.distance(intersection)
-                                    {
-                                        closest_intersection = Some(intersection);
-                                        closest_action = Some(action);
+    match stack.peek_mut() {
+        Some(Action::MakePrediction {
+            factions_shown,
+            faction_picked,
+            turns_shown,
+            turn_picked,
+            animation_time: _,
+            current_time: _,
+            src: _,
+            faction_dests,
+            turn_dests,
+        }) => {
+            if !*faction_picked || !*turn_picked {
+                if mouse_input.just_pressed(MouseButton::Left) {
+                    if let Some((_, camera)) = cameras.iter().next() {
+                        if let Some(window) = windows.get_primary() {
+                            if let Some(pos) = window.cursor_position() {
+                                let ss_pos = Vec2::new(
+                                    2.0 * (pos.x / window.physical_width() as f32) - 1.0,
+                                    2.0 * (pos.y / window.physical_height() as f32) - 1.0,
+                                );
+                                let p = camera.projection_matrix.inverse()
+                                    * ss_pos.extend(0.0).extend(1.0);
+                                let p = p.xyz() / p.w;
+                                let card_extents = Vec2::new(0.125, 0.18);
+                                if *factions_shown && !*faction_picked {
+                                    for (i, &card_pos) in faction_dests.iter().enumerate() {
+                                        if let Some(FactionPredictionCard { faction }) =
+                                            prediction_cards.q0().iter().nth(i)
+                                        {
+                                            let card_pos = camera.projection_matrix.inverse()
+                                                * card_pos.extend(0.0).extend(1.0);
+                                            let card_pos = card_pos.xyz() / card_pos.w;
+                                            if p.x >= card_pos.x - card_extents.x
+                                                && p.x <= card_pos.x + card_extents.x
+                                                && p.y >= card_pos.y - card_extents.y
+                                                && p.y <= card_pos.y + card_extents.y
+                                            {
+                                                predictions.iter_mut().for_each(
+                                                    |mut prediction| {
+                                                        prediction.faction = Some(*faction);
+                                                    },
+                                                );
+                                                *faction_picked = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                } else if *turns_shown && !*turn_picked {
+                                    for (i, &card_pos) in turn_dests.iter().enumerate() {
+                                        if let Some(TurnPredictionCard { turn }) =
+                                            prediction_cards.q1().iter().nth(i)
+                                        {
+                                            let card_pos = camera.projection_matrix.inverse()
+                                                * card_pos.extend(0.0).extend(1.0);
+                                            let card_pos = card_pos.xyz() / card_pos.w;
+                                            if p.x >= card_pos.x - card_extents.x
+                                                && p.x <= card_pos.x + card_extents.x
+                                                && p.y >= card_pos.y - card_extents.y
+                                                && p.y <= card_pos.y + card_extents.y
+                                            {
+                                                predictions.iter_mut().for_each(
+                                                    |mut prediction| {
+                                                        prediction.turn = Some(*turn);
+                                                    },
+                                                );
+                                                *turn_picked = true;
+                                                break;
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
-                        if let Some(ClickAction { action }) = closest_action {
-                            stack.push(action.clone());
-                        }
                     }
                 }
             }
-        } else if keyboard_input.just_pressed(KeyCode::Escape) {
-            stack.push(Action::move_camera(data.camera_nodes.main, 1.5));
+        }
+        _ => {
+            if mouse_input.just_pressed(MouseButton::Left) {
+                if let Some((&transform, camera)) = cameras.iter().next() {
+                    if let Some(window) = windows.get_primary() {
+                        if let Some(pos) = window.cursor_position() {
+                            let ss_pos = Vec2::new(
+                                2.0 * (pos.x / window.physical_width() as f32) - 1.0,
+                                2.0 * (pos.y / window.physical_height() as f32) - 1.0,
+                            );
+                            let p0 = screen_to_world(
+                                ss_pos.extend(0.0),
+                                transform,
+                                camera.projection_matrix,
+                            );
+                            let p1 = screen_to_world(
+                                ss_pos.extend(1.0),
+                                transform,
+                                camera.projection_matrix,
+                            );
+                            let dir = (p1 - p0).normalize();
+                            let ray = Ray::<f32, Point3<f32>, Vector3<f32>>::new(
+                                (p0.x, p0.y, p0.z).into(),
+                                (dir.x, dir.y, dir.z).into(),
+                            );
+                            let (mut closest_intersection, mut closest_action) = (None, None);
+                            for (collider, action) in colliders.iter() {
+                                if let Some(intersection) = ray.intersection(&collider.aabb) {
+                                    if closest_intersection.is_none() {
+                                        closest_intersection = Some(intersection);
+                                        closest_action = Some(action);
+                                    } else {
+                                        if ray.origin.distance(closest_intersection.unwrap())
+                                            > ray.origin.distance(intersection)
+                                        {
+                                            closest_intersection = Some(intersection);
+                                            closest_action = Some(action);
+                                        }
+                                    }
+                                }
+                            }
+                            if let Some(ClickAction { action }) = closest_action {
+                                stack.push(action.clone());
+                            }
+                        }
+                    }
+                }
+            } else if keyboard_input.just_pressed(KeyCode::Escape) {
+                stack.push(Action::move_camera(data.camera_nodes.main, 1.5));
+            }
         }
     }
 }
@@ -693,26 +955,21 @@ fn handle_phase(
     storm_cards: Query<&StormCard>,
     mut unique_query: Query<(&mut Visible, &Unique)>,
 ) {
-    // We'll handle awaited stuff elsewhere
+    // We need to resolve any pending actions first
     if stack.is_empty() {
         match state.phase {
             Phase::Setup { ref mut subphase } => {
                 match subphase {
                     SetupSubPhase::ChooseFactions => {
                         // skip for now
-                        let entity = info.play_order[info.active_player];
-                        let active_player_faction = player_query.get_mut(entity).unwrap().1.faction;
-
-                        for (mut visible, unique) in unique_query.iter_mut() {
-                            visible.is_visible = unique.faction == active_player_faction;
-                        }
-                        *subphase = SetupSubPhase::Prediction;
+                        set_view_to_active_player(&info, &mut player_query, &mut unique_query);
+                        state.phase.advance();
                     }
                     SetupSubPhase::Prediction => {
-                        for (entity, player) in player_query.iter_mut() {
+                        for (_, player) in player_query.iter_mut() {
                             if player.faction == Faction::BeneGesserit {
                                 // Make a prediction
-                                stack.push(Action::MakePrediction { player: entity });
+                                stack.push(Action::make_prediction(1.5));
                             }
                         }
                     }
@@ -869,6 +1126,13 @@ fn handle_phase(
     }
 }
 
+enum ActionResult {
+    None,
+    Remove,
+    Replace { actions: Vec<Action> },
+    Add { actions: Vec<Action> },
+}
+
 fn handle_actions(
     mut stack: ResMut<ActionStack>,
     mut state: ResMut<State>,
@@ -876,54 +1140,253 @@ fn handle_actions(
     mut resources: ResMut<Resources>,
     mut player_query: Query<(Entity, &mut Player)>,
     storm_cards: Query<&StormCard>,
-    mut cameras: Query<&mut Transform, With<Camera>>,
+    mut cameras: Query<(&mut Transform, &Camera)>,
+    mut predictions: QuerySet<(
+        Query<(&mut Transform, &FactionPredictionCard)>,
+        Query<(&mut Transform, &TurnPredictionCard)>,
+    )>,
+    mut uniques: Query<(&mut Visible, &Unique)>,
     time: Res<Time>,
 ) {
     if let Some(action) = stack.peek_mut() {
         match action {
-            Action::CameraMotion {
-                src,
-                dest,
-                remaining_time,
-                total_time,
-            } => {
-                if let Some(mut transform) = cameras.iter_mut().next() {
-                    if *remaining_time <= 0.0 {
-                        *transform =
-                            Transform::from_translation(dest.pos).looking_at(dest.at, dest.up);
-                        stack.pop();
-                    } else {
-                        if transform.translation != dest.pos {
-                            if let Some(src_transform) = src {
-                                let mut lerp_amount =
-                                    PI * (*total_time - *remaining_time) / *total_time;
-                                lerp_amount = -0.5 * lerp_amount.cos() + 0.5;
-                                let dest_transform = Transform::from_translation(dest.pos)
-                                    .looking_at(dest.at, dest.up);
-                                *transform = Transform::from_translation(
-                                    src_transform
-                                        .translation
-                                        .lerp(dest_transform.translation, lerp_amount),
-                                ) * Transform::from_rotation(
-                                    src_transform
-                                        .rotation
-                                        .lerp(dest_transform.rotation, lerp_amount),
-                                );
-                            } else {
-                                *src = Some(transform.clone())
-                            }
-                            *remaining_time -= time.delta_seconds();
-                        } else {
-                            stack.pop();
+            Action::Simultaneous { actions } => {
+                let mut new_actions = Vec::new();
+                for action in actions.iter_mut() {
+                    match handle_single_action(
+                        action,
+                        &mut state,
+                        &mut info,
+                        &mut resources,
+                        &mut player_query,
+                        &storm_cards,
+                        &mut cameras,
+                        &mut predictions,
+                        &mut uniques,
+                        &time,
+                    ) {
+                        ActionResult::None => new_actions.push(action.clone()),
+                        ActionResult::Remove => (),
+                        ActionResult::Replace {
+                            actions: mut replace_actions,
+                        } => new_actions.extend(replace_actions.drain(..)),
+                        ActionResult::Add {
+                            actions: mut add_actions,
+                        } => {
+                            new_actions.push(action.clone());
+                            new_actions.extend(add_actions.drain(..));
                         }
-                    }
-                } else {
+                    };
+                }
+                *actions = new_actions;
+                if actions.is_empty() {
                     stack.pop();
                 }
             }
             _ => {
-                stack.pop();
+                match handle_single_action(
+                    action,
+                    &mut state,
+                    &mut info,
+                    &mut resources,
+                    &mut player_query,
+                    &storm_cards,
+                    &mut cameras,
+                    &mut predictions,
+                    &mut uniques,
+                    &time,
+                ) {
+                    ActionResult::None => (),
+                    ActionResult::Remove => {
+                        stack.pop();
+                    }
+                    ActionResult::Replace {
+                        actions: mut replace_actions,
+                    } => {
+                        stack.pop();
+                        stack.extend(replace_actions.drain(..));
+                    }
+                    ActionResult::Add {
+                        actions: mut add_actions,
+                    } => {
+                        stack.extend(add_actions.drain(..));
+                    }
+                };
             }
+        }
+    }
+}
+
+fn handle_single_action(
+    action: &mut Action,
+    state: &mut ResMut<State>,
+    info: &mut ResMut<Info>,
+    resources: &mut ResMut<Resources>,
+    player_query: &mut Query<(Entity, &mut Player)>,
+    storm_cards: &Query<&StormCard>,
+    cameras: &mut Query<(&mut Transform, &Camera)>,
+    predictions: &mut QuerySet<(
+        Query<(&mut Transform, &FactionPredictionCard)>,
+        Query<(&mut Transform, &TurnPredictionCard)>,
+    )>,
+    uniques: &mut Query<(&mut Visible, &Unique)>,
+    time: &Res<Time>,
+) -> ActionResult {
+    match action {
+        Action::CameraMotion {
+            src,
+            dest,
+            remaining_time,
+            total_time,
+        } => {
+            if let Some((mut cam_transform, camera)) = cameras.iter_mut().next() {
+                if *remaining_time <= 0.0 {
+                    *cam_transform =
+                        Transform::from_translation(dest.pos).looking_at(dest.at, dest.up);
+                    return ActionResult::Remove;
+                } else {
+                    if cam_transform.translation != dest.pos {
+                        if let Some(src_transform) = src {
+                            let mut lerp_amount =
+                                PI * (*total_time - *remaining_time) / *total_time;
+                            lerp_amount = -0.5 * lerp_amount.cos() + 0.5;
+                            let dest_transform =
+                                Transform::from_translation(dest.pos).looking_at(dest.at, dest.up);
+                            *cam_transform = Transform::from_translation(
+                                src_transform
+                                    .translation
+                                    .lerp(dest_transform.translation, lerp_amount),
+                            ) * Transform::from_rotation(
+                                src_transform
+                                    .rotation
+                                    .lerp(dest_transform.rotation, lerp_amount),
+                            );
+                        } else {
+                            *src = Some(cam_transform.clone())
+                        }
+                        *remaining_time -= time.delta_seconds();
+                        return ActionResult::None;
+                    } else {
+                        return ActionResult::Remove;
+                    }
+                }
+            } else {
+                return ActionResult::Remove;
+            }
+        }
+        Action::MakePrediction {
+            factions_shown,
+            faction_picked,
+            turns_shown,
+            turn_picked,
+            animation_time,
+            current_time,
+            src,
+            faction_dests,
+            turn_dests,
+        } => {
+            // Animate faction cards
+            if let Some((cam_transform, camera)) = cameras.iter_mut().next() {
+                if !*factions_shown {
+                    for (mut visible, unique) in uniques.iter_mut() {
+                        visible.is_visible = unique.faction == Faction::BeneGesserit;
+                    }
+                    if current_time >= animation_time {
+                        for (i, (mut transform, _)) in predictions.q0_mut().iter_mut().enumerate() {
+                            *transform = Transform::from_translation(screen_to_world(
+                                faction_dests[i].extend(0.1),
+                                *cam_transform,
+                                camera.projection_matrix,
+                            )) * Transform::from_rotation(cam_transform.rotation)
+                                * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI))
+                                * Transform::from_scale(Vec3::splat(0.01));
+                        }
+                        *factions_shown = true;
+                        *current_time = 0.0;
+                    } else {
+                        let num_factions = info.factions_in_play.len();
+                        let delay = *animation_time / (2.0 * num_factions as f32);
+                        let indiv_anim_time = *animation_time - (delay * (num_factions - 1) as f32);
+                        for (i, (mut transform, _)) in predictions.q0_mut().iter_mut().enumerate() {
+                            let mut lerp_amount = PI
+                                * ((*current_time - (i as f32 * delay))
+                                    .max(0.0)
+                                    .min(indiv_anim_time))
+                                / indiv_anim_time;
+                            lerp_amount = -0.5 * lerp_amount.cos() + 0.5;
+                            *transform = Transform::from_translation(
+                                screen_to_world(
+                                    src.extend(0.1),
+                                    *cam_transform,
+                                    camera.projection_matrix,
+                                )
+                                .lerp(
+                                    screen_to_world(
+                                        faction_dests[i].extend(0.1),
+                                        *cam_transform,
+                                        camera.projection_matrix,
+                                    ),
+                                    lerp_amount,
+                                ),
+                            ) * Transform::from_rotation(cam_transform.rotation)
+                                * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI))
+                                * Transform::from_scale(Vec3::splat(0.01));
+                        }
+                        *current_time += time.delta_seconds();
+                    }
+                } else if *faction_picked && !*turns_shown {
+                    if current_time >= animation_time {
+                        for (i, (mut transform, _)) in predictions.q1_mut().iter_mut().enumerate() {
+                            *transform = Transform::from_translation(screen_to_world(
+                                turn_dests[i].extend(0.1),
+                                *cam_transform,
+                                camera.projection_matrix,
+                            )) * Transform::from_rotation(cam_transform.rotation)
+                                * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI))
+                                * Transform::from_scale(Vec3::splat(0.006));
+                        }
+                        *turns_shown = true;
+                        *current_time = 0.0;
+                    } else {
+                        let delay = *animation_time / (2.0 * 15.0);
+                        let indiv_anim_time = *animation_time - (delay * 14.0);
+                        for (i, (mut transform, _)) in predictions.q1_mut().iter_mut().enumerate() {
+                            let mut lerp_amount = PI
+                                * ((*current_time - (i as f32 * delay))
+                                    .max(0.0)
+                                    .min(indiv_anim_time))
+                                / indiv_anim_time;
+                            lerp_amount = -0.5 * lerp_amount.cos() + 0.5;
+                            *transform = Transform::from_translation(
+                                screen_to_world(
+                                    src.extend(0.1),
+                                    *cam_transform,
+                                    camera.projection_matrix,
+                                )
+                                .lerp(
+                                    screen_to_world(
+                                        turn_dests[i].extend(0.1),
+                                        *cam_transform,
+                                        camera.projection_matrix,
+                                    ),
+                                    lerp_amount,
+                                ),
+                            ) * Transform::from_rotation(cam_transform.rotation)
+                                * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI))
+                                * Transform::from_scale(Vec3::splat(0.006));
+                        }
+                        *current_time += time.delta_seconds();
+                    }
+                } else if *turn_picked {
+                    set_view_to_active_player(info, player_query, uniques);
+                    state.phase.advance();
+                    return ActionResult::Remove;
+                }
+            }
+            return ActionResult::None;
+        }
+        _ => {
+            return ActionResult::Remove;
         }
     }
 }
@@ -940,5 +1403,22 @@ fn propagate_visibility(
                 }
             }
         }
+    }
+}
+
+fn screen_to_world(ss_pos: Vec3, transform: Transform, v: Mat4) -> Vec3 {
+    let p = transform.compute_matrix() * v.inverse() * ss_pos.extend(1.0);
+    p.xyz() / p.w
+}
+
+fn set_view_to_active_player(
+    info: &ResMut<Info>,
+    players: &mut Query<(Entity, &mut Player)>,
+    uniques: &mut Query<(&mut Visible, &Unique)>,
+) {
+    let entity = info.play_order[info.active_player];
+    let active_player_faction = players.get_mut(entity).unwrap().1.faction;
+    for (mut visible, unique) in uniques.iter_mut() {
+        visible.is_visible = unique.faction == active_player_faction;
     }
 }
