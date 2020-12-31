@@ -1,0 +1,20 @@
+import bpy
+import bmesh
+
+# Get the active mesh
+obj = bpy.context.edit_object
+me = obj.data
+
+# Get a BMesh representation
+bm = bmesh.from_edit_mesh(me)
+
+bm.faces.active = None
+
+# Modify the BMesh, can do anything here...
+for f in bm.faces:
+    if f.select:
+        print('Median:', f.calc_center_median())
+        for v in f.verts:
+            print(tuple(v.co) )
+            
+bm.free()

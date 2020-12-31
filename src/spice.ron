@@ -1,0 +1,66 @@
+[
+    (
+        name: "Broken Land",
+        texture: "brokenland",
+    ),
+    (
+        name: "Cielago North",
+        texture: "cielagonorth",
+    ),
+    (
+        name: "Cielago South",
+        texture: "cielagosouth",
+    ),
+    (
+        name: "Funeral Plain",
+        texture: "funeralplain",
+    ),
+    (
+        name: "The Great Flat",
+        texture: "greatflat",
+    ),
+    (
+        name: "Habbanya Erg",
+        texture: "habbanyaerg",
+    ),
+    (
+        name: "Habbanya Ridge Flat",
+        texture: "habbanyaridgeflat",
+    ),
+    (
+        name: "Hagga Basin",
+        texture: "haggabasin",
+    ),
+    (
+        name: "The Minor Erg",
+        texture: "minorerg",
+    ),
+    (
+        name: "Old Gap",
+        texture: "oldgap",
+    ),
+    (
+        name: "Red Chasm",
+        texture: "redchasm",
+    ),
+    (
+        name: "Rock Outcroppings",
+        texture: "rockoutcroppings",
+    ),
+    (
+        name: "Sihaya Ridge",
+        texture: "sihayaridge",
+    ),
+    (
+        name: "South Mesa",
+        texture: "southmesa",
+    ),
+    (
+        name: "Wind Pass North",
+        texture: "windpassnorth",
+    ),
+    (
+        name: "Shai-Halud",
+        texture: "shaihalud",
+    ),
+]
