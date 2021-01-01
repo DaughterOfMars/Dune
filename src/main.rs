@@ -5,16 +5,22 @@ use bevy::{
 };
 
 mod data;
-use cgmath::{MetricSpace, Point3, Vector3};
 use data::*;
+use ncollide3d::{
+    na::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3},
+    query::{Ray, RayCast},
+    shape::{Cuboid, Shape},
+};
 
-use std::{collections::HashMap, fs::File};
+use std::{
+    collections::HashMap,
+    fs::File,
+    ops::{Deref, DerefMut},
+};
 
 use rand::{seq::SliceRandom, Rng};
 
 use std::f32::consts::PI;
-
-use collision::{prelude::*, primitive::Primitive3, Aabb3, Ray};
 
 fn main() {
     App::build()
@@ -148,8 +154,69 @@ struct Unique {
 }
 
 struct Collider {
-    aabb: Aabb3<f32>,
-    primitive: Option<Primitive3<f32>>,
+    shape: Box<dyn Shape<f32>>,
+}
+
+#[derive(Bundle)]
+struct ColliderBundle {
+    transform: Transform,
+    global_transform: GlobalTransform,
+    collider: Collider,
+    click_action: Option<ClickAction>,
+    hover_action: Option<HoverAction>,
+}
+
+impl ColliderBundle {
+    fn new(
+        shape: impl Shape<f32>,
+        click_action: Option<Action>,
+        hover_action: Option<Action>,
+    ) -> Self {
+        Self {
+            transform: Transform::default(),
+            global_transform: GlobalTransform::default(),
+            collider: Collider {
+                shape: Box::new(shape),
+            },
+            click_action: click_action.and_then(|action| Some(ClickAction { action })),
+            hover_action: hover_action.and_then(|action| Some(HoverAction { action })),
+        }
+    }
+
+    fn with_transform(
+        shape: impl Shape<f32>,
+        transform: Transform,
+        click_action: Option<Action>,
+        hover_action: Option<Action>,
+    ) -> Self {
+        Self {
+            transform,
+            global_transform: GlobalTransform::default(),
+            collider: Collider {
+                shape: Box::new(shape),
+            },
+            click_action: click_action.and_then(|action| Some(ClickAction { action })),
+            hover_action: hover_action.and_then(|action| Some(HoverAction { action })),
+        }
+    }
+}
+
+#[derive(Bundle)]
+struct UniqueBundle {
+    unique: Unique,
+    visible: Visible,
+}
+
+impl UniqueBundle {
+    fn new(faction: Faction) -> Self {
+        Self {
+            unique: Unique { faction },
+            visible: Visible {
+                is_visible: false,
+                ..Default::default()
+            },
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -157,12 +224,18 @@ struct ClickAction {
     action: Action,
 }
 
+#[derive(Clone)]
+struct HoverAction {
+    action: Action,
+}
+
+#[derive(Copy, Clone, Default, Debug)]
 struct Prediction {
     faction: Option<Faction>,
     turn: Option<i32>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Action {
     // Allows a player to choose between multiple actions
     Choice {
@@ -173,16 +246,54 @@ enum Action {
     Simultaneous {
         actions: Vec<Action>,
     },
-    MakePrediction {
-        factions_shown: bool,
-        faction_picked: bool,
-        turns_shown: bool,
-        turn_picked: bool,
+    // Execute a series of actions in order
+    Sequence {
+        actions: Vec<Action>,
+    },
+    // Wait for some action to occur before resolving this one
+    Await {
+        timer: Option<f32>,
+    },
+    Delay {
+        time: f32,
+        action: Box<Action>,
+    },
+    Show {
+        element: Entity,
+    },
+    Hide {
+        element: Entity,
+    },
+    AnimateUIElement {
+        element: Entity,
+        src: Vec2,
+        dest: Vec2,
         animation_time: f32,
         current_time: f32,
+    },
+    Animate3DElement {
+        element: Entity,
+        src: Transform,
+        dest: Transform,
+        animation_time: f32,
+        current_time: f32,
+    },
+    AnimateUIElementTo3D {
+        element: Entity,
         src: Vec2,
-        faction_dests: Vec<Vec2>,
-        turn_dests: Vec<Vec2>,
+        dest: Transform,
+        animation_time: f32,
+        current_time: f32,
+    },
+    Animate3DElementToUI {
+        element: Entity,
+        src: Transform,
+        dest: Vec2,
+        animation_time: f32,
+        current_time: f32,
+    },
+    MakePrediction {
+        prediction: Prediction,
     },
     PlaceFreeTroops {
         player: Entity,
@@ -204,7 +315,7 @@ enum Action {
         remaining_time: f32,
         total_time: f32,
     },
-    ButtonPress,
+    AdvancePhase,
 }
 
 impl Action {
@@ -217,40 +328,137 @@ impl Action {
         }
     }
 
-    fn make_prediction(time: f32) -> Self {
-        Action::MakePrediction {
-            factions_shown: false,
-            faction_picked: false,
-            turns_shown: false,
-            turn_picked: false,
+    fn animate_ui(element: Entity, src: Vec2, dest: Vec2, time: f32) -> Self {
+        Action::AnimateUIElement {
+            element,
+            src,
+            dest,
             animation_time: time,
             current_time: 0.0,
-            src: (1.5, -1.5).into(),
-            faction_dests: vec![
-                (-0.5, 0.5).into(),
-                (0.0, 0.5).into(),
-                (0.5, 0.5).into(),
-                (-0.5, -0.5).into(),
-                (0.0, -0.5).into(),
-                (0.5, -0.5).into(),
-            ],
-            turn_dests: vec![
-                (-0.8, 0.6).into(),
-                (-0.4, 0.6).into(),
-                (0.0, 0.6).into(),
-                (0.4, 0.6).into(),
-                (0.8, 0.6).into(),
-                (-0.8, 0.0).into(),
-                (-0.4, 0.0).into(),
-                (0.0, 0.0).into(),
-                (0.4, 0.0).into(),
-                (0.8, 0.0).into(),
-                (-0.8, -0.6).into(),
-                (-0.4, -0.6).into(),
-                (0.0, -0.6).into(),
-                (0.4, -0.6).into(),
-                (0.8, -0.6).into(),
-            ],
+        }
+    }
+
+    fn animate_3d(element: Entity, src: Transform, dest: Transform, time: f32) -> Self {
+        Action::Animate3DElement {
+            element,
+            src,
+            dest,
+            animation_time: time,
+            current_time: 0.0,
+        }
+    }
+
+    fn await_indefinite() -> Self {
+        Action::Await { timer: None }
+    }
+
+    fn await_timed(time: f32) -> Self {
+        Action::Await { timer: Some(time) }
+    }
+
+    fn delay(action: Action, time: f32) -> Self {
+        Action::Delay {
+            action: Box::new(action),
+            time,
+        }
+    }
+}
+
+impl std::fmt::Display for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Action::Choice { player, options } => {
+                let s = options
+                    .iter()
+                    .map(|option| option.to_string())
+                    .collect::<Vec<String>>()
+                    .join("/");
+                write!(f, "Choice({})", s)
+            }
+            Action::Simultaneous { actions } => {
+                let s = actions
+                    .iter()
+                    .map(|action| action.to_string())
+                    .collect::<Vec<String>>()
+                    .join(" + ");
+                write!(f, "Simul({})", s)
+            }
+            Action::Sequence { actions } => {
+                let s = actions
+                    .iter()
+                    .map(|action| action.to_string())
+                    .collect::<Vec<String>>()
+                    .join(" -> ");
+                write!(f, "Seq({})", s)
+            }
+            Action::Await { timer } => {
+                if let Some(timer) = timer {
+                    write!(f, "Await(remaining={})", timer)
+                } else {
+                    write!(f, "Await(Forever)")
+                }
+            }
+            Action::Delay { time, action } => write!(f, "Delay({}, remaining={})", action, time),
+            Action::Show { element } => write!(f, "Show({:?})", *element),
+            Action::Hide { element } => write!(f, "Hide({:?})", *element),
+            Action::AnimateUIElement {
+                element,
+                src,
+                dest,
+                animation_time,
+                current_time,
+            } => write!(f, "AnimateUIElement"),
+            Action::Animate3DElement {
+                element,
+                src,
+                dest,
+                animation_time,
+                current_time,
+            } => write!(f, "Animate3DElement"),
+            Action::AnimateUIElementTo3D {
+                element,
+                src,
+                dest,
+                animation_time,
+                current_time,
+            } => write!(f, "AnimateUIElementTo3D"),
+            Action::Animate3DElementToUI {
+                element,
+                src,
+                dest,
+                animation_time,
+                current_time,
+            } => write!(f, "Animate3DElementToUI"),
+            Action::MakePrediction { prediction } => {
+                if let Some(faction) = prediction.faction {
+                    write!(f, "MakePrediction({:?})", faction)
+                } else {
+                    if let Some(turn) = prediction.turn {
+                        write!(f, "MakePrediction({})", turn)
+                    } else {
+                        write!(f, "MakePrediction")
+                    }
+                }
+            }
+            Action::PlaceFreeTroops {
+                player,
+                num,
+                locations,
+            } => write!(f, "PlaceFreeTroops"),
+            Action::PlaceTroops {
+                player,
+                num,
+                locations,
+            } => write!(f, "PlaceTroops"),
+            Action::PickTraitors => write!(f, "PickTraitors"),
+            Action::PlayPrompt { treachery_card } => write!(f, "PlayPrompt"),
+            Action::CameraMotion {
+                src,
+                dest,
+                remaining_time,
+                total_time,
+            } => write!(f, "CameraMotion"),
+            Action::AdvancePhase => write!(f, "AdvancePhase"),
         }
     }
 }
@@ -261,6 +469,7 @@ struct Data {
     treachery_cards: Vec<TreacheryCard>,
     spice_cards: Vec<SpiceCard>,
     camera_nodes: CameraNodes,
+    prediction_nodes: PredictionNodes,
 }
 
 impl Data {
@@ -272,12 +481,15 @@ impl Data {
         let spice_cards = ron::de::from_reader(File::open("src/spice.ron").unwrap()).unwrap();
         let camera_nodes =
             ron::de::from_reader(File::open("src/camera_nodes.ron").unwrap()).unwrap();
+        let prediction_nodes =
+            ron::de::from_reader(File::open("src/prediction_nodes.ron").unwrap()).unwrap();
         Data {
             locations,
             leaders,
             treachery_cards,
             spice_cards,
             camera_nodes,
+            prediction_nodes,
         }
     }
 }
@@ -402,16 +614,10 @@ fn init(
     asset_server.load_folder(".").unwrap();
     // Board
     commands
-        .spawn((
-            Collider {
-                aabb: collision::Aabb3::new((1.0, -0.007, 1.1).into(), (-1.0, 0.007, -1.1).into()),
-                primitive: None,
-            },
-            ClickAction {
-                action: Action::move_camera(data.camera_nodes.board, 1.5),
-            },
-            Transform::default(),
-            GlobalTransform::default(),
+        .spawn(ColliderBundle::new(
+            Cuboid::new(Vector3::new(1.0, 0.007, 1.1)),
+            Some(Action::move_camera(data.camera_nodes.board, 1.5)),
+            None,
         ))
         .with_children(|parent| {
             parent.spawn_scene(asset_server.get_handle("board.gltf"));
@@ -486,25 +692,13 @@ fn init(
                 ..Default::default()
             });
             commands
-                .spawn((
-                    Unique { faction },
+                .spawn(ColliderBundle::with_transform(
+                    Cuboid::new(Vector3::new(0.525, 0.285, 0.06)),
                     Transform::from_translation(Vec3::new(0.0, 0.27, 1.34)),
-                    GlobalTransform::default(),
-                    Visible {
-                        is_visible: false,
-                        ..Default::default()
-                    },
-                    Collider {
-                        aabb: collision::Aabb3::new(
-                            (-0.525, 0.0, 1.542).into(),
-                            (0.525, 0.57, 1.421).into(),
-                        ),
-                        primitive: None,
-                    },
-                    ClickAction {
-                        action: Action::move_camera(data.camera_nodes.shield, 1.5),
-                    },
+                    Some(Action::move_camera(data.camera_nodes.shield, 1.5)),
+                    None,
                 ))
+                .with_bundle(UniqueBundle::new(faction))
                 .with_children(|parent| {
                     parent.spawn(PbrBundle {
                         mesh: shield_face.clone(),
@@ -524,18 +718,20 @@ fn init(
                 ..Default::default()
             });
             commands
-                .spawn((
-                    Unique {
-                        faction: Faction::BeneGesserit,
-                    },
-                    FactionPredictionCard { faction },
-                    Transform::default(),
-                    GlobalTransform::default(),
-                    Visible {
-                        is_visible: false,
-                        ..Default::default()
-                    },
+                .spawn(ColliderBundle::with_transform(
+                    Cuboid::new(Vector3::new(0.525, 0.285, 0.06) * 0.01),
+                    Transform::from_scale(Vec3::splat(0.1))
+                        * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI)),
+                    Some(Action::MakePrediction {
+                        prediction: Prediction {
+                            faction: Some(faction),
+                            turn: None,
+                        },
+                    }),
+                    None,
                 ))
+                .with_bundle(UniqueBundle::new(Faction::BeneGesserit))
+                .with(FactionPredictionCard { faction })
                 .with_children(|parent| {
                     parent.spawn(PbrBundle {
                         mesh: card_face.clone(),
@@ -571,18 +767,20 @@ fn init(
             ..Default::default()
         });
         commands
-            .spawn((
-                Unique {
-                    faction: Faction::BeneGesserit,
-                },
-                TurnPredictionCard { turn },
-                Transform::default(),
-                GlobalTransform::default(),
-                Visible {
-                    is_visible: false,
-                    ..Default::default()
-                },
+            .spawn(ColliderBundle::with_transform(
+                Cuboid::new(Vector3::new(0.525, 0.285, 0.06) * 0.006),
+                Transform::from_scale(Vec3::splat(0.06))
+                    * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI)),
+                Some(Action::MakePrediction {
+                    prediction: Prediction {
+                        faction: None,
+                        turn: Some(turn),
+                    },
+                }),
+                None,
             ))
+            .with_bundle(UniqueBundle::new(Faction::BeneGesserit))
+            .with(TurnPredictionCard { turn })
             .with_children(|parent| {
                 parent.spawn(PbrBundle {
                     mesh: card_face.clone(),
@@ -782,117 +980,47 @@ fn init(
         .collect();
     resources.storm_deck.shuffle(&mut rng);
 
-    commands.spawn((
-        Collider {
-            aabb: collision::Aabb3::new((1.1, -0.009, 0.47).into(), (1.35, 0.05, 0.11).into()),
-            primitive: None,
-        },
-        ClickAction {
-            action: Action::move_camera(data.camera_nodes.spice, 1.5),
-        },
+    commands.spawn(ColliderBundle::with_transform(
+        Cuboid::new(Vector3::new(0.125, 0.03, 0.18)),
+        Transform::from_translation(data.camera_nodes.treachery.at),
+        Some(Action::move_camera(data.camera_nodes.treachery, 1.5)),
+        None,
     ));
 
-    commands.spawn((
-        Collider {
-            aabb: collision::Aabb3::new((1.1, -0.009, 1.05).into(), (1.35, 0.05, 0.69).into()),
-            primitive: None,
-        },
-        ClickAction {
-            action: Action::move_camera(data.camera_nodes.storm, 1.5),
-        },
+    commands.spawn(ColliderBundle::with_transform(
+        Cuboid::new(Vector3::new(0.125, 0.03, 0.18)),
+        Transform::from_translation(data.camera_nodes.traitor.at),
+        Some(Action::move_camera(data.camera_nodes.traitor, 1.5)),
+        None,
+    ));
+
+    commands.spawn(ColliderBundle::with_transform(
+        Cuboid::new(Vector3::new(0.125, 0.03, 0.18)),
+        Transform::from_translation(data.camera_nodes.spice.at),
+        Some(Action::move_camera(data.camera_nodes.spice, 1.5)),
+        None,
+    ));
+
+    commands.spawn(ColliderBundle::with_transform(
+        Cuboid::new(Vector3::new(0.125, 0.03, 0.18)),
+        Transform::from_translation(data.camera_nodes.storm.at),
+        Some(Action::move_camera(data.camera_nodes.storm, 1.5)),
+        None,
     ));
 }
 
 fn input(
     mut stack: ResMut<ActionStack>,
+    info: Res<Info>,
     data: Res<Data>,
     windows: Res<Windows>,
     mouse_input: Res<Input<MouseButton>>,
     keyboard_input: Res<Input<KeyCode>>,
     cameras: Query<(&Transform, &Camera)>,
-    colliders: Query<(&Collider, &ClickAction)>,
-    mut predictions: Query<&mut Prediction>,
-    prediction_cards: QuerySet<(Query<&FactionPredictionCard>, Query<&TurnPredictionCard>)>,
+    colliders: Query<(&Collider, &Transform, &ClickAction)>,
 ) {
     match stack.peek_mut() {
-        Some(Action::MakePrediction {
-            factions_shown,
-            faction_picked,
-            turns_shown,
-            turn_picked,
-            animation_time: _,
-            current_time: _,
-            src: _,
-            faction_dests,
-            turn_dests,
-        }) => {
-            if !*faction_picked || !*turn_picked {
-                if mouse_input.just_pressed(MouseButton::Left) {
-                    if let Some((_, camera)) = cameras.iter().next() {
-                        if let Some(window) = windows.get_primary() {
-                            if let Some(pos) = window.cursor_position() {
-                                let ss_pos = Vec2::new(
-                                    2.0 * (pos.x / window.physical_width() as f32) - 1.0,
-                                    2.0 * (pos.y / window.physical_height() as f32) - 1.0,
-                                );
-                                let p = camera.projection_matrix.inverse()
-                                    * ss_pos.extend(0.0).extend(1.0);
-                                let p = p.xyz() / p.w;
-                                let card_extents = Vec2::new(0.125, 0.18);
-                                if *factions_shown && !*faction_picked {
-                                    for (i, &card_pos) in faction_dests.iter().enumerate() {
-                                        if let Some(FactionPredictionCard { faction }) =
-                                            prediction_cards.q0().iter().nth(i)
-                                        {
-                                            let card_pos = camera.projection_matrix.inverse()
-                                                * card_pos.extend(0.0).extend(1.0);
-                                            let card_pos = card_pos.xyz() / card_pos.w;
-                                            if p.x >= card_pos.x - card_extents.x
-                                                && p.x <= card_pos.x + card_extents.x
-                                                && p.y >= card_pos.y - card_extents.y
-                                                && p.y <= card_pos.y + card_extents.y
-                                            {
-                                                predictions.iter_mut().for_each(
-                                                    |mut prediction| {
-                                                        prediction.faction = Some(*faction);
-                                                    },
-                                                );
-                                                *faction_picked = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                } else if *turns_shown && !*turn_picked {
-                                    for (i, &card_pos) in turn_dests.iter().enumerate() {
-                                        if let Some(TurnPredictionCard { turn }) =
-                                            prediction_cards.q1().iter().nth(i)
-                                        {
-                                            let card_pos = camera.projection_matrix.inverse()
-                                                * card_pos.extend(0.0).extend(1.0);
-                                            let card_pos = card_pos.xyz() / card_pos.w;
-                                            if p.x >= card_pos.x - card_extents.x
-                                                && p.x <= card_pos.x + card_extents.x
-                                                && p.y >= card_pos.y - card_extents.y
-                                                && p.y <= card_pos.y + card_extents.y
-                                            {
-                                                predictions.iter_mut().for_each(
-                                                    |mut prediction| {
-                                                        prediction.turn = Some(*turn);
-                                                    },
-                                                );
-                                                *turn_picked = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        _ => {
+        Some(Action::Await { .. }) | None => {
             if mouse_input.just_pressed(MouseButton::Left) {
                 if let Some((&transform, camera)) = cameras.iter().next() {
                     if let Some(window) = windows.get_primary() {
@@ -912,21 +1040,37 @@ fn input(
                                 camera.projection_matrix,
                             );
                             let dir = (p1 - p0).normalize();
-                            let ray = Ray::<f32, Point3<f32>, Vector3<f32>>::new(
-                                (p0.x, p0.y, p0.z).into(),
-                                (dir.x, dir.y, dir.z).into(),
+                            let ray = Ray::new(
+                                Point3::new(p0.x, p0.y, p0.z),
+                                Vector3::new(dir.x, dir.y, dir.z),
                             );
-                            let (mut closest_intersection, mut closest_action) = (None, None);
-                            for (collider, action) in colliders.iter() {
-                                if let Some(intersection) = ray.intersection(&collider.aabb) {
-                                    if closest_intersection.is_none() {
-                                        closest_intersection = Some(intersection);
+                            let (mut closest_toi, mut closest_action) = (None, None);
+                            for (collider, transform, action) in colliders.iter() {
+                                let (axis, angle) = transform.rotation.to_axis_angle();
+                                let angleaxis = axis * angle;
+                                if let Some(toi) = collider.shape.toi_with_ray(
+                                    &Isometry3::from_parts(
+                                        Translation3::new(
+                                            transform.translation.x,
+                                            transform.translation.y,
+                                            transform.translation.z,
+                                        ),
+                                        UnitQuaternion::new(Vector3::new(
+                                            angleaxis.x,
+                                            angleaxis.y,
+                                            angleaxis.z,
+                                        )),
+                                    ),
+                                    &ray,
+                                    100.0,
+                                    true,
+                                ) {
+                                    if closest_toi.is_none() {
+                                        closest_toi = Some(toi);
                                         closest_action = Some(action);
                                     } else {
-                                        if ray.origin.distance(closest_intersection.unwrap())
-                                            > ray.origin.distance(intersection)
-                                        {
-                                            closest_intersection = Some(intersection);
+                                        if toi < closest_toi.unwrap() {
+                                            closest_toi = Some(toi);
                                             closest_action = Some(action);
                                         }
                                     }
@@ -942,6 +1086,7 @@ fn input(
                 stack.push(Action::move_camera(data.camera_nodes.main, 1.5));
             }
         }
+        _ => (),
     }
 }
 
@@ -949,11 +1094,13 @@ fn handle_phase(
     mut stack: ResMut<ActionStack>,
     mut state: ResMut<State>,
     mut info: ResMut<Info>,
+    data: Res<Data>,
     mut resources: ResMut<Resources>,
     mut player_query: Query<(Entity, &mut Player)>,
     mut storm_query: Query<&mut Storm>,
     storm_cards: Query<&StormCard>,
     mut unique_query: Query<(&mut Visible, &Unique)>,
+    prediction_cards: Query<(Entity, &FactionPredictionCard)>,
 ) {
     // We need to resolve any pending actions first
     if stack.is_empty() {
@@ -968,12 +1115,42 @@ fn handle_phase(
                     SetupSubPhase::Prediction => {
                         for (_, player) in player_query.iter_mut() {
                             if player.faction == Faction::BeneGesserit {
-                                // Make a prediction
-                                stack.push(Action::make_prediction(1.5));
+                                for (mut visible, unique) in unique_query.iter_mut() {
+                                    visible.is_visible = unique.faction == Faction::BeneGesserit;
+                                }
+                                // Animate in faction prediction cards
+                                let num_factions = info.factions_in_play.len();
+                                let animation_time = 1.5;
+                                let delay = animation_time / (2.0 * num_factions as f32);
+                                let indiv_anim_time =
+                                    animation_time - (delay * (num_factions - 1) as f32);
+                                let in_actions: Vec<Action> = prediction_cards
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(i, (element, _))| {
+                                        Action::delay(
+                                            Action::animate_ui(
+                                                element,
+                                                data.prediction_nodes.src,
+                                                data.prediction_nodes.factions[i],
+                                                indiv_anim_time,
+                                            ),
+                                            delay * i as f32,
+                                        )
+                                    })
+                                    .collect();
+                                let in_action = Action::Simultaneous {
+                                    actions: in_actions,
+                                };
+                                let sequence = Action::Sequence {
+                                    actions: vec![in_action, Action::await_indefinite()],
+                                };
+                                stack.push(sequence);
                             }
                         }
                     }
                     SetupSubPhase::AtStart => {
+                        set_view_to_active_player(&info, &mut player_query, &mut unique_query);
                         let entity = info.play_order[info.active_player];
                         let mut players = player_query.iter_mut().collect::<HashMap<Entity, _>>();
                         let active_player_faction = players.get_mut(&entity).unwrap().faction;
@@ -1129,117 +1306,162 @@ fn handle_phase(
 enum ActionResult {
     None,
     Remove,
-    Replace { actions: Vec<Action> },
-    Add { actions: Vec<Action> },
+    Replace { action: Action },
+    Add { action: Action },
 }
 
 fn handle_actions(
     mut stack: ResMut<ActionStack>,
     mut state: ResMut<State>,
     mut info: ResMut<Info>,
+    data: Res<Data>,
     mut resources: ResMut<Resources>,
     mut player_query: Query<(Entity, &mut Player)>,
     storm_cards: Query<&StormCard>,
     mut cameras: Query<(&mut Transform, &Camera)>,
-    mut predictions: QuerySet<(
-        Query<(&mut Transform, &FactionPredictionCard)>,
-        Query<(&mut Transform, &TurnPredictionCard)>,
-    )>,
     mut uniques: Query<(&mut Visible, &Unique)>,
+    mut transforms: Query<&mut Transform, Without<Camera>>,
     time: Res<Time>,
+    mut predictions: Query<&mut Prediction>,
+    prediction_cards: QuerySet<(
+        Query<(Entity, &FactionPredictionCard)>,
+        Query<(Entity, &TurnPredictionCard)>,
+    )>,
 ) {
-    if let Some(action) = stack.peek_mut() {
-        match action {
-            Action::Simultaneous { actions } => {
-                let mut new_actions = Vec::new();
-                for action in actions.iter_mut() {
-                    match handle_single_action(
-                        action,
-                        &mut state,
-                        &mut info,
-                        &mut resources,
-                        &mut player_query,
-                        &storm_cards,
-                        &mut cameras,
-                        &mut predictions,
-                        &mut uniques,
-                        &time,
-                    ) {
-                        ActionResult::None => new_actions.push(action.clone()),
-                        ActionResult::Remove => (),
-                        ActionResult::Replace {
-                            actions: mut replace_actions,
-                        } => new_actions.extend(replace_actions.drain(..)),
-                        ActionResult::Add {
-                            actions: mut add_actions,
-                        } => {
-                            new_actions.push(action.clone());
-                            new_actions.extend(add_actions.drain(..));
-                        }
-                    };
-                }
-                *actions = new_actions;
-                if actions.is_empty() {
-                    stack.pop();
-                }
+    print!("Stack: ");
+    for item in stack.0.iter().rev() {
+        print!("{}, ", item);
+    }
+    println!();
+    if let Some(mut action) = stack.pop() {
+        match handle_action_recursive(
+            &mut action,
+            &mut stack,
+            &mut state,
+            &mut info,
+            &data,
+            &mut resources,
+            &mut player_query,
+            &storm_cards,
+            &mut cameras,
+            &mut uniques,
+            &time,
+            &mut transforms,
+            &mut predictions,
+            &prediction_cards,
+        ) {
+            ActionResult::None => {
+                stack.push(action);
             }
-            _ => {
-                match handle_single_action(
-                    action,
-                    &mut state,
-                    &mut info,
-                    &mut resources,
-                    &mut player_query,
-                    &storm_cards,
-                    &mut cameras,
-                    &mut predictions,
-                    &mut uniques,
-                    &time,
-                ) {
-                    ActionResult::None => (),
-                    ActionResult::Remove => {
-                        stack.pop();
-                    }
-                    ActionResult::Replace {
-                        actions: mut replace_actions,
-                    } => {
-                        stack.pop();
-                        stack.extend(replace_actions.drain(..));
-                    }
-                    ActionResult::Add {
-                        actions: mut add_actions,
-                    } => {
-                        stack.extend(add_actions.drain(..));
-                    }
-                };
+            ActionResult::Remove => (),
+            ActionResult::Replace {
+                action: replace_action,
+            } => {
+                stack.push(replace_action);
             }
-        }
+            ActionResult::Add { action: add_action } => {
+                stack.push(action);
+                stack.push(add_action);
+            }
+        };
     }
 }
 
-fn handle_single_action(
+fn handle_action_recursive(
     action: &mut Action,
+    stack: &mut ResMut<ActionStack>,
     state: &mut ResMut<State>,
     info: &mut ResMut<Info>,
+    data: &Res<Data>,
     resources: &mut ResMut<Resources>,
     player_query: &mut Query<(Entity, &mut Player)>,
     storm_cards: &Query<&StormCard>,
     cameras: &mut Query<(&mut Transform, &Camera)>,
-    predictions: &mut QuerySet<(
-        Query<(&mut Transform, &FactionPredictionCard)>,
-        Query<(&mut Transform, &TurnPredictionCard)>,
-    )>,
     uniques: &mut Query<(&mut Visible, &Unique)>,
     time: &Res<Time>,
+    transforms: &mut Query<&mut Transform, Without<Camera>>,
+    predictions: &mut Query<&mut Prediction>,
+    prediction_cards: &QuerySet<(
+        Query<(Entity, &FactionPredictionCard)>,
+        Query<(Entity, &TurnPredictionCard)>,
+    )>,
 ) -> ActionResult {
     match action {
+        Action::Simultaneous { actions } => {
+            let mut new_actions = Vec::new();
+            for mut action in actions.drain(..) {
+                match handle_action_recursive(
+                    &mut action,
+                    stack,
+                    state,
+                    info,
+                    data,
+                    resources,
+                    player_query,
+                    storm_cards,
+                    cameras,
+                    uniques,
+                    time,
+                    transforms,
+                    predictions,
+                    prediction_cards,
+                ) {
+                    ActionResult::None => {
+                        new_actions.push(action);
+                    }
+                    ActionResult::Remove => (),
+                    ActionResult::Replace {
+                        action: replace_action,
+                    } => {
+                        new_actions.push(replace_action);
+                    }
+                    ActionResult::Add { action: add_action } => {
+                        new_actions.push(action);
+                        new_actions.push(add_action);
+                    }
+                };
+            }
+            if !new_actions.is_empty() {
+                ActionResult::Replace {
+                    action: Action::Simultaneous {
+                        actions: new_actions,
+                    },
+                }
+            } else {
+                ActionResult::Remove
+            }
+        }
+        Action::Sequence { actions } => {
+            actions.reverse();
+            stack.extend(actions.drain(..));
+            if let Some(mut action) = stack.pop() {
+                handle_action_recursive(
+                    &mut action,
+                    stack,
+                    state,
+                    info,
+                    data,
+                    resources,
+                    player_query,
+                    storm_cards,
+                    cameras,
+                    uniques,
+                    time,
+                    transforms,
+                    predictions,
+                    prediction_cards,
+                )
+            } else {
+                ActionResult::Remove
+            }
+        }
         Action::CameraMotion {
             src,
             dest,
             remaining_time,
             total_time,
         } => {
-            if let Some((mut cam_transform, camera)) = cameras.iter_mut().next() {
+            if let Some((mut cam_transform, _)) = cameras.iter_mut().next() {
                 if *remaining_time <= 0.0 {
                     *cam_transform =
                         Transform::from_translation(dest.pos).looking_at(dest.at, dest.up);
@@ -1274,116 +1496,202 @@ fn handle_single_action(
                 return ActionResult::Remove;
             }
         }
-        Action::MakePrediction {
-            factions_shown,
-            faction_picked,
-            turns_shown,
-            turn_picked,
+        Action::AnimateUIElement {
+            element,
+            src,
+            dest,
             animation_time,
             current_time,
-            src,
-            faction_dests,
-            turn_dests,
         } => {
-            // Animate faction cards
-            if let Some((cam_transform, camera)) = cameras.iter_mut().next() {
-                if !*factions_shown {
-                    for (mut visible, unique) in uniques.iter_mut() {
-                        visible.is_visible = unique.faction == Faction::BeneGesserit;
-                    }
-                    if current_time >= animation_time {
-                        for (i, (mut transform, _)) in predictions.q0_mut().iter_mut().enumerate() {
-                            *transform = Transform::from_translation(screen_to_world(
-                                faction_dests[i].extend(0.1),
+            if let Ok(mut element_transform) = transforms.get_mut(*element) {
+                if let Some((cam_transform, camera)) = cameras.iter_mut().next() {
+                    if *current_time >= *animation_time {
+                        *element_transform = Transform::from_translation(screen_to_world(
+                            dest.extend(0.1),
+                            *cam_transform,
+                            camera.projection_matrix,
+                        )) * Transform::from_rotation(cam_transform.rotation)
+                            * Transform::from_scale(element_transform.scale);
+
+                        return ActionResult::Remove;
+                    } else {
+                        let mut lerp_amount =
+                            PI * (*current_time).min(*animation_time) / *animation_time;
+                        lerp_amount = -0.5 * lerp_amount.cos() + 0.5;
+                        *element_transform = Transform::from_translation(
+                            screen_to_world(
+                                src.extend(0.1),
                                 *cam_transform,
                                 camera.projection_matrix,
-                            )) * Transform::from_rotation(cam_transform.rotation)
-                                * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI))
-                                * Transform::from_scale(Vec3::splat(0.01));
-                        }
-                        *factions_shown = true;
-                        *current_time = 0.0;
-                    } else {
-                        let num_factions = info.factions_in_play.len();
-                        let delay = *animation_time / (2.0 * num_factions as f32);
-                        let indiv_anim_time = *animation_time - (delay * (num_factions - 1) as f32);
-                        for (i, (mut transform, _)) in predictions.q0_mut().iter_mut().enumerate() {
-                            let mut lerp_amount = PI
-                                * ((*current_time - (i as f32 * delay))
-                                    .max(0.0)
-                                    .min(indiv_anim_time))
-                                / indiv_anim_time;
-                            lerp_amount = -0.5 * lerp_amount.cos() + 0.5;
-                            *transform = Transform::from_translation(
+                            )
+                            .lerp(
                                 screen_to_world(
-                                    src.extend(0.1),
+                                    dest.extend(0.1),
                                     *cam_transform,
                                     camera.projection_matrix,
-                                )
-                                .lerp(
-                                    screen_to_world(
-                                        faction_dests[i].extend(0.1),
-                                        *cam_transform,
-                                        camera.projection_matrix,
-                                    ),
-                                    lerp_amount,
                                 ),
-                            ) * Transform::from_rotation(cam_transform.rotation)
-                                * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI))
-                                * Transform::from_scale(Vec3::splat(0.01));
-                        }
+                                lerp_amount,
+                            ),
+                        ) * Transform::from_rotation(cam_transform.rotation)
+                            * Transform::from_scale(element_transform.scale);
+
                         *current_time += time.delta_seconds();
                     }
-                } else if *faction_picked && !*turns_shown {
-                    if current_time >= animation_time {
-                        for (i, (mut transform, _)) in predictions.q1_mut().iter_mut().enumerate() {
-                            *transform = Transform::from_translation(screen_to_world(
-                                turn_dests[i].extend(0.1),
-                                *cam_transform,
-                                camera.projection_matrix,
-                            )) * Transform::from_rotation(cam_transform.rotation)
-                                * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI))
-                                * Transform::from_scale(Vec3::splat(0.006));
-                        }
-                        *turns_shown = true;
-                        *current_time = 0.0;
-                    } else {
-                        let delay = *animation_time / (2.0 * 15.0);
-                        let indiv_anim_time = *animation_time - (delay * 14.0);
-                        for (i, (mut transform, _)) in predictions.q1_mut().iter_mut().enumerate() {
-                            let mut lerp_amount = PI
-                                * ((*current_time - (i as f32 * delay))
-                                    .max(0.0)
-                                    .min(indiv_anim_time))
-                                / indiv_anim_time;
-                            lerp_amount = -0.5 * lerp_amount.cos() + 0.5;
-                            *transform = Transform::from_translation(
-                                screen_to_world(
-                                    src.extend(0.1),
-                                    *cam_transform,
-                                    camera.projection_matrix,
-                                )
-                                .lerp(
-                                    screen_to_world(
-                                        turn_dests[i].extend(0.1),
-                                        *cam_transform,
-                                        camera.projection_matrix,
-                                    ),
-                                    lerp_amount,
-                                ),
-                            ) * Transform::from_rotation(cam_transform.rotation)
-                                * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI))
-                                * Transform::from_scale(Vec3::splat(0.006));
-                        }
-                        *current_time += time.delta_seconds();
-                    }
-                } else if *turn_picked {
-                    set_view_to_active_player(info, player_query, uniques);
-                    state.phase.advance();
-                    return ActionResult::Remove;
                 }
             }
-            return ActionResult::None;
+            ActionResult::None
+        }
+        Action::MakePrediction { prediction } => {
+            for mut player_prediction in predictions.iter_mut() {
+                player_prediction.faction = prediction.faction.or(player_prediction.faction);
+                player_prediction.turn = prediction.turn.or(player_prediction.turn);
+            }
+            if prediction.faction.is_some() {
+                let num_factions = info.factions_in_play.len();
+                let animation_time = 1.5;
+                let mut delay = animation_time / (2.0 * num_factions as f32);
+                let mut indiv_anim_time = animation_time - (delay * (num_factions - 1) as f32);
+                // Animate selected card
+                let chosen_action = prediction_cards
+                    .q0()
+                    .iter()
+                    .enumerate()
+                    .find(|(_, (_, card))| card.faction == prediction.faction.unwrap())
+                    .map(|(i, (element, _))| {
+                        Action::animate_ui(
+                            element,
+                            data.prediction_nodes.factions[i],
+                            data.prediction_nodes.chosen_faction,
+                            1.0,
+                        )
+                    })
+                    .unwrap();
+                // Animate out faction cards
+                let mut out_actions: Vec<Action> = prediction_cards
+                    .q0()
+                    .iter()
+                    .filter(|(_, card)| card.faction != prediction.faction.unwrap())
+                    .enumerate()
+                    .map(|(i, (element, _))| {
+                        Action::delay(
+                            Action::animate_ui(
+                                element,
+                                data.prediction_nodes.factions[i],
+                                data.prediction_nodes.src,
+                                indiv_anim_time,
+                            ),
+                            1.0 + (delay * i as f32),
+                        )
+                    })
+                    .collect();
+                out_actions.push(chosen_action);
+                let out_action = Action::Simultaneous {
+                    actions: out_actions,
+                };
+                // Animate in turn cards
+                delay = animation_time / 30.0;
+                indiv_anim_time = animation_time - (delay * 14.0);
+                let in_actions: Vec<Action> = prediction_cards
+                    .q1()
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (element, _))| {
+                        Action::delay(
+                            Action::animate_ui(
+                                element,
+                                data.prediction_nodes.src,
+                                data.prediction_nodes.turns[i],
+                                indiv_anim_time,
+                            ),
+                            delay * i as f32,
+                        )
+                    })
+                    .collect();
+                let in_action = Action::Simultaneous {
+                    actions: in_actions,
+                };
+                return ActionResult::Replace {
+                    action: Action::Sequence {
+                        actions: vec![out_action, in_action, Action::await_indefinite()],
+                    },
+                };
+            } else if prediction.turn.is_some() {
+                let animation_time = 1.5;
+                let delay = animation_time / 30.0;
+                let indiv_anim_time = animation_time - (delay * 14.0);
+                // Animate selected card
+                let chosen_action = prediction_cards
+                    .q1()
+                    .iter()
+                    .enumerate()
+                    .find(|(_, (_, card))| card.turn == prediction.turn.unwrap())
+                    .map(|(i, (element, _))| {
+                        Action::animate_ui(
+                            element,
+                            data.prediction_nodes.turns[i],
+                            data.prediction_nodes.chosen_turn,
+                            1.0,
+                        )
+                    })
+                    .unwrap();
+                // Animate out turn cards
+                let mut out_actions: Vec<Action> = prediction_cards
+                    .q1()
+                    .iter()
+                    .filter(|(_, card)| card.turn != prediction.turn.unwrap())
+                    .enumerate()
+                    .map(|(i, (element, _))| {
+                        Action::delay(
+                            Action::animate_ui(
+                                element,
+                                data.prediction_nodes.turns[i],
+                                data.prediction_nodes.src,
+                                indiv_anim_time,
+                            ),
+                            1.0 + (delay * i as f32),
+                        )
+                    })
+                    .collect();
+                out_actions.push(chosen_action);
+                let out_action = Action::Simultaneous {
+                    actions: out_actions,
+                };
+                return ActionResult::Replace {
+                    action: Action::Sequence {
+                        actions: vec![out_action, Action::delay(Action::AdvancePhase, 1.5)],
+                    },
+                };
+            }
+            ActionResult::Remove
+        }
+        Action::Await { timer } => {
+            if let Some(timer) = timer {
+                *timer -= time.delta_seconds();
+                if *timer <= 0.0 {
+                    ActionResult::Remove
+                } else {
+                    ActionResult::None
+                }
+            } else {
+                ActionResult::None
+            }
+        }
+        Action::Delay {
+            action: delayed,
+            time: timer,
+        } => {
+            *timer -= time.delta_seconds();
+            if *timer <= 0.0 {
+                ActionResult::Replace {
+                    action: delayed.deref_mut().clone(),
+                }
+            } else {
+                ActionResult::None
+            }
+        }
+        Action::AdvancePhase => {
+            state.phase.advance();
+            ActionResult::Remove
         }
         _ => {
             return ActionResult::Remove;

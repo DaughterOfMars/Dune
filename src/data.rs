@@ -1,4 +1,4 @@
-use bevy::math::Vec3;
+use bevy::math::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -170,10 +170,22 @@ pub struct CameraNodes {
     pub main: CameraNode,
     pub shield: CameraNode,
     pub board: CameraNode,
+    pub treachery: CameraNode,
+    pub traitor: CameraNode,
     pub spice: CameraNode,
     pub storm: CameraNode,
 }
-#[derive(Copy, Clone, Serialize, Deserialize)]
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PredictionNodes {
+    pub src: Vec2,
+    pub factions: Vec<Vec2>,
+    pub turns: Vec<Vec2>,
+    pub chosen_faction: Vec2,
+    pub chosen_turn: Vec2,
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 pub struct CameraNode {
     pub pos: Vec3,
     pub at: Vec3,
