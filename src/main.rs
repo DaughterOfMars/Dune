@@ -37,8 +37,8 @@ fn main() {
         .add_resource(ActionStack(Vec::new()))
         .add_plugins(DefaultPlugins)
         .add_startup_system(init.system())
-        .add_system(handle_actions.system())
         .add_system(input.system())
+        .add_system(handle_actions.system())
         .add_system(handle_phase.system())
         .add_system(propagate_visibility.system())
         //.add_system(handle_phase.system())
@@ -273,7 +273,7 @@ enum Action {
     },
     Animate3DElement {
         element: Entity,
-        src: Transform,
+        src: Option<Transform>,
         dest: Transform,
         animation_time: f32,
         current_time: f32,
@@ -287,7 +287,7 @@ enum Action {
     },
     Animate3DElementToUI {
         element: Entity,
-        src: Transform,
+        src: Option<Transform>,
         dest: Vec2,
         animation_time: f32,
         current_time: f32,
@@ -338,7 +338,17 @@ impl Action {
         }
     }
 
-    fn animate_3d(element: Entity, src: Transform, dest: Transform, time: f32) -> Self {
+    fn animate_3d_to_ui(element: Entity, src: Option<Transform>, dest: Vec2, time: f32) -> Self {
+        Action::Animate3DElementToUI {
+            element,
+            src,
+            dest,
+            animation_time: time,
+            current_time: 0.0,
+        }
+    }
+
+    fn animate_3d(element: Entity, src: Option<Transform>, dest: Transform, time: f32) -> Self {
         Action::Animate3DElement {
             element,
             src,
@@ -719,8 +729,8 @@ fn init(
             });
             commands
                 .spawn(ColliderBundle::with_transform(
-                    Cuboid::new(Vector3::new(0.525, 0.285, 0.06) * 0.01),
-                    Transform::from_scale(Vec3::splat(0.1))
+                    Cuboid::new(Vector3::new(0.125, 0.0005, 0.18) * 0.01),
+                    Transform::from_scale(Vec3::splat(0.01))
                         * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI)),
                     Some(Action::MakePrediction {
                         prediction: Prediction {
@@ -768,8 +778,8 @@ fn init(
         });
         commands
             .spawn(ColliderBundle::with_transform(
-                Cuboid::new(Vector3::new(0.525, 0.285, 0.06) * 0.006),
-                Transform::from_scale(Vec3::splat(0.06))
+                Cuboid::new(Vector3::new(0.125, 0.0005, 0.18) * 0.006),
+                Transform::from_scale(Vec3::splat(0.006))
                     * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI)),
                 Some(Action::MakePrediction {
                     prediction: Prediction {
@@ -1017,12 +1027,12 @@ fn input(
     mouse_input: Res<Input<MouseButton>>,
     keyboard_input: Res<Input<KeyCode>>,
     cameras: Query<(&Transform, &Camera)>,
-    colliders: Query<(&Collider, &Transform, &ClickAction)>,
+    colliders: Query<(&Collider, &Transform, &Option<ClickAction>)>,
 ) {
     match stack.peek_mut() {
         Some(Action::Await { .. }) | None => {
             if mouse_input.just_pressed(MouseButton::Left) {
-                if let Some((&transform, camera)) = cameras.iter().next() {
+                if let Some((&cam_transform, camera)) = cameras.iter().next() {
                     if let Some(window) = windows.get_primary() {
                         if let Some(pos) = window.cursor_position() {
                             let ss_pos = Vec2::new(
@@ -1031,12 +1041,12 @@ fn input(
                             );
                             let p0 = screen_to_world(
                                 ss_pos.extend(0.0),
-                                transform,
+                                cam_transform,
                                 camera.projection_matrix,
                             );
                             let p1 = screen_to_world(
                                 ss_pos.extend(1.0),
-                                transform,
+                                cam_transform,
                                 camera.projection_matrix,
                             );
                             let dir = (p1 - p0).normalize();
@@ -1045,7 +1055,17 @@ fn input(
                                 Vector3::new(dir.x, dir.y, dir.z),
                             );
                             let (mut closest_toi, mut closest_action) = (None, None);
-                            for (collider, transform, action) in colliders.iter() {
+                            for (collider, transform, action) in
+                                colliders
+                                    .iter()
+                                    .filter_map(|(collider, transform, action)| {
+                                        if let Some(action) = action {
+                                            Some((collider, transform, action))
+                                        } else {
+                                            None
+                                        }
+                                    })
+                            {
                                 let (axis, angle) = transform.rotation.to_axis_angle();
                                 let angleaxis = axis * angle;
                                 if let Some(toi) = collider.shape.toi_with_ray(
@@ -1077,6 +1097,7 @@ fn input(
                                 }
                             }
                             if let Some(ClickAction { action }) = closest_action {
+                                stack.pop();
                                 stack.push(action.clone());
                             }
                         }
@@ -1127,16 +1148,24 @@ fn handle_phase(
                                 let in_actions: Vec<Action> = prediction_cards
                                     .iter()
                                     .enumerate()
-                                    .map(|(i, (element, _))| {
-                                        Action::delay(
-                                            Action::animate_ui(
+                                    .map(|(i, (element, _))| Action::Simultaneous {
+                                        actions: vec![
+                                            Action::animate_3d_to_ui(
                                                 element,
+                                                None,
                                                 data.prediction_nodes.src,
-                                                data.prediction_nodes.factions[i],
-                                                indiv_anim_time,
+                                                0.0,
                                             ),
-                                            delay * i as f32,
-                                        )
+                                            Action::delay(
+                                                Action::animate_ui(
+                                                    element,
+                                                    data.prediction_nodes.src,
+                                                    data.prediction_nodes.factions[i],
+                                                    indiv_anim_time,
+                                                ),
+                                                delay * i as f32,
+                                            ),
+                                        ],
                                     })
                                     .collect();
                                 let in_action = Action::Simultaneous {
@@ -1328,11 +1357,13 @@ fn handle_actions(
         Query<(Entity, &TurnPredictionCard)>,
     )>,
 ) {
+    /*
     print!("Stack: ");
     for item in stack.0.iter().rev() {
         print!("{}, ", item);
     }
     println!();
+    */
     if let Some(mut action) = stack.pop() {
         match handle_action_recursive(
             &mut action,
@@ -1506,34 +1537,74 @@ fn handle_action_recursive(
             if let Ok(mut element_transform) = transforms.get_mut(*element) {
                 if let Some((cam_transform, camera)) = cameras.iter_mut().next() {
                     if *current_time >= *animation_time {
-                        *element_transform = Transform::from_translation(screen_to_world(
+                        element_transform.translation = screen_to_world(
                             dest.extend(0.1),
                             *cam_transform,
                             camera.projection_matrix,
-                        )) * Transform::from_rotation(cam_transform.rotation)
-                            * Transform::from_scale(element_transform.scale);
+                        );
 
                         return ActionResult::Remove;
                     } else {
                         let mut lerp_amount =
                             PI * (*current_time).min(*animation_time) / *animation_time;
                         lerp_amount = -0.5 * lerp_amount.cos() + 0.5;
-                        *element_transform = Transform::from_translation(
+                        element_transform.translation = screen_to_world(
+                            src.extend(0.1),
+                            *cam_transform,
+                            camera.projection_matrix,
+                        )
+                        .lerp(
                             screen_to_world(
-                                src.extend(0.1),
+                                dest.extend(0.1),
                                 *cam_transform,
                                 camera.projection_matrix,
-                            )
-                            .lerp(
-                                screen_to_world(
-                                    dest.extend(0.1),
-                                    *cam_transform,
-                                    camera.projection_matrix,
-                                ),
-                                lerp_amount,
                             ),
-                        ) * Transform::from_rotation(cam_transform.rotation)
-                            * Transform::from_scale(element_transform.scale);
+                            lerp_amount,
+                        );
+
+                        *current_time += time.delta_seconds();
+                    }
+                }
+            }
+            ActionResult::None
+        }
+        Action::Animate3DElementToUI {
+            element,
+            src,
+            dest,
+            animation_time,
+            current_time,
+        } => {
+            if let Ok(mut element_transform) = transforms.get_mut(*element) {
+                if let Some((cam_transform, camera)) = cameras.iter_mut().next() {
+                    if src.is_none() {
+                        src.replace(element_transform.clone());
+                    }
+                    if *current_time >= *animation_time {
+                        element_transform.translation = screen_to_world(
+                            dest.extend(0.1),
+                            *cam_transform,
+                            camera.projection_matrix,
+                        );
+                        element_transform.rotation = cam_transform.rotation * src.unwrap().rotation;
+
+                        return ActionResult::Remove;
+                    } else {
+                        let mut lerp_amount =
+                            PI * (*current_time).min(*animation_time) / *animation_time;
+                        lerp_amount = -0.5 * lerp_amount.cos() + 0.5;
+                        element_transform.translation = src.unwrap().translation.lerp(
+                            screen_to_world(
+                                dest.extend(0.1),
+                                *cam_transform,
+                                camera.projection_matrix,
+                            ),
+                            lerp_amount,
+                        );
+                        element_transform.rotation = src
+                            .unwrap()
+                            .rotation
+                            .lerp(cam_transform.rotation * src.unwrap().rotation, lerp_amount);
 
                         *current_time += time.delta_seconds();
                     }
@@ -1595,16 +1666,19 @@ fn handle_action_recursive(
                     .q1()
                     .iter()
                     .enumerate()
-                    .map(|(i, (element, _))| {
-                        Action::delay(
-                            Action::animate_ui(
-                                element,
-                                data.prediction_nodes.src,
-                                data.prediction_nodes.turns[i],
-                                indiv_anim_time,
+                    .map(|(i, (element, _))| Action::Simultaneous {
+                        actions: vec![
+                            Action::animate_3d_to_ui(element, None, data.prediction_nodes.src, 0.0),
+                            Action::delay(
+                                Action::animate_ui(
+                                    element,
+                                    data.prediction_nodes.src,
+                                    data.prediction_nodes.turns[i],
+                                    indiv_anim_time,
+                                ),
+                                delay * i as f32,
                             ),
-                            delay * i as f32,
-                        )
+                        ],
                     })
                     .collect();
                 let in_action = Action::Simultaneous {
