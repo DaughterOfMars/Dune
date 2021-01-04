@@ -1,20 +1,82 @@
 import bpy
 import bmesh
+import json
+from collections import defaultdict
 
 # Get the active mesh
 obj = bpy.context.edit_object
-me = obj.data
 
-# Get a BMesh representation
-bm = bmesh.from_edit_mesh(me)
+strongholds = {'Arrakeen', "Tuek's Sietch", 'Carthag', 'Habbanya Sietch', 'Sietch Tabr'}
+rock = {'Plastic Basin', 'Rim Wall West', 'Shield Wall', 'Pasty Mesa', 'False Wall West', 'False Wall South', 'False Wall East'}
 
-bm.faces.active = None
+nodes = defaultdict(lambda: {'spice': [], 'sectors': {}})
 
-# Modify the BMesh, can do anything here...
-for f in bm.faces:
-    if f.select:
-        print('Median:', f.calc_center_median())
-        for v in f.verts:
-            print(tuple(v.co) )
+for group in obj.vertex_groups:
+    obj.vertex_groups.active_index = group.index
+    bpy.ops.mesh.select_all(action='DESELECT')
+    bpy.ops.object.vertex_group_select()
+    bm = bmesh.from_edit_mesh(obj.data)
+    s = group.name.split(';')
+    name = s[0]
+    if len(s) > 1:
+        sector = s[1]
+    else:
+        sector = -1
+    vertices = [v for v in bm.verts if v.select]
+    convert = {v.index: i for i, v in enumerate(vertices)}
+    indices = [convert[v.index] for f in bm.faces for v in f.verts if f.select]
+    nodes[name]['sectors'][sector] = {'vertices': vertices, 'indices': indices}
+    
+for name, attrs in nodes.items():
+    for sector in attrs['sectors'].keys():
+        name_coll = bpy.data.collections['Locations'].children[name]
+        fighter_nodes = [o.location for o in name_coll.children[name + ' ' + str(sector)].objects]
+        spice_nodes = [o.location for o in (name_coll.children[name + ' Spice'].objects if name + ' Spice' in name_coll.children else [])]
+        nodes[name]['sectors'][sector]['fighters'] = fighter_nodes
+        nodes[name]['spice'] = spice_nodes
+    
+   
+with open('C:\Repositories\Dune\src\exported_locations.ron', 'w') as f:
+    print('[', file=f)
+    ind = 1
+    for name, attrs in nodes.items():
+        print('\t' * ind,'(', file=f, sep='')
+        ind += 1
+        print('\t' * ind,'name: "',name, '",', sep='', file=f)
+        type = 'Rock' if name in rock else 'Stronghold' if name in strongholds else 'Sand'
+        print('\t' * ind,'terrain: ', type, ',', sep='', file=f)
+        if len(attrs['spice']):
+            s = attrs['spice'][0]
+            print('\t' * ind, 'spice: Some((', s.x, ', ', s.y, ', ', s.z,')),', sep='',file=f)
+        else:
+            print('\t' * ind, 'spice: None,', sep='',file=f)
+        print('\t' * ind,'sectors: {', file=f, sep='')
+        ind += 1
+        for sector, verts_inds in attrs['sectors'].items():
+            print('\t' * ind, sector, ': (', sep='',file=f)
+            ind += 1
+            print('\t' * ind, 'vertices: [', sep='',file=f)
+            ind += 1
+            for v in verts_inds['vertices']:
+                print('\t' * ind,'(', v.co.x, ', ', v.co.y, ', ', v.co.z,'),', sep='', file=f)
+            ind -= 1
+            print('\t' * ind,'],', file=f, sep='')
+            print('\t' * ind,'indices: [', file=f, end='', sep='')
+            for i in verts_inds['indices']:
+                print(i, ', ', sep='', file=f, end='')
+            print('],', file=f)
+            print('\t' * ind, 'fighters: [', sep='',file=f)
+            ind += 1
+            for ft in verts_inds['fighters']:
+                print('\t' * ind,'(', ft.x, ', ', ft.y, ', ', ft.z,'),', sep='', file=f)
+            ind -= 1
+            print('\t' * ind,'],', file=f, sep='')
+            ind -= 1
+            print('\t' * ind,'),', file=f, sep='')
+        ind -= 1
+        print('\t' * ind,'},', file=f, sep='')
+        ind -= 1
+        print('\t' * ind,'),', file=f, sep='')
+    print(']', file=f)
             
-bm.free()
+    

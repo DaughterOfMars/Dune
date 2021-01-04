@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use bevy::math::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 
@@ -26,13 +28,13 @@ impl Faction {
                 10,
             ),
             Self::Emperor => (0, None, 10),
-            Self::SpacingGuild => (5, Some(vec!["Tueks Sietch".to_string()]), 5),
+            Self::SpacingGuild => (5, Some(vec!["Tuek's Sietch".to_string()]), 5),
             Self::Harkonnen => (10, Some(vec!["Carthag".to_string()]), 10),
         }
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Leader {
     pub name: String,
     pub power: i32,
@@ -40,14 +42,23 @@ pub struct Leader {
     pub texture: String,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Location {
     pub name: String,
     pub terrain: Terrain,
-    pub verts: Vec<(f32, f32)>
+    pub spice: Option<Vec3>,
+    pub sectors: HashMap<i32, LocationNodes>
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq)]
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct LocationNodes {
+    pub vertices: Vec<Vec3>,
+    pub indices: Vec<i32>,
+    pub fighters: Vec<Vec3>
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum Terrain {
     Sand,
     Rock,
@@ -62,7 +73,7 @@ pub enum Bonus {
     Smugglers,
     Harvesters,
 }
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum Effect {
     Worthless,
     PoisonWeapon,
@@ -136,12 +147,17 @@ impl Effect {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct TreacheryCard {
     pub id: i32,
     pub effect: Effect,
     pub name: String,
     pub texture: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct TraitorCard {
+    pub leader: Leader
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -190,4 +206,12 @@ pub struct CameraNode {
     pub pos: Vec3,
     pub at: Vec3,
     pub up: Vec3,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct TokenNodes {
+    pub leaders: Vec<Vec3>,
+    pub spice: Vec<Vec3>,
+    pub fighters: Vec<Vec3>,
+    pub faction: Vec<Vec3>,
 }
