@@ -3,16 +3,17 @@ mod resources;
 mod components;
 mod data;
 mod input;
+mod lerper;
 mod phase;
 mod stack;
 mod util;
 
 use components::*;
 use data::*;
-use input::*;
-use phase::{handle_phase, Phase, SetupSubPhase};
+use input::InputPlugin;
+use phase::*;
 use resources::*;
-use stack::{handle_actions, Action, ActionStack, Context};
+use stack::*;
 use util::divide_spice;
 
 use bevy::{prelude::*, render::camera::PerspectiveProjection};
@@ -33,14 +34,14 @@ fn main() {
         .add_resource(ClearColor(Color::BLACK))
         .add_resource(Data::init())
         .add_resource(Info::new())
-        .add_resource(crate::resources::Resources::default())
+        .add_resource(Collections::default())
         .add_resource(crate::phase::State::default())
-        .add_resource(ActionStack::default())
+        .add_resource(ActionQueue::default())
+        .add_resource(EffectStack::default())
         .add_plugins(DefaultPlugins)
+        .add_plugin(InputPlugin)
+        .add_plugin(PhasePlugin)
         .add_startup_system(init.system())
-        .add_system(input_system.system())
-        .add_system(handle_actions.system())
-        .add_system(handle_phase.system())
         .add_system(propagate_visibility.system())
         .run();
 }
@@ -49,7 +50,7 @@ fn init(
     commands: &mut Commands,
     data: Res<Data>,
     mut info: ResMut<Info>,
-    mut resources: ResMut<crate::resources::Resources>,
+    mut collections: ResMut<Collections>,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -57,10 +58,10 @@ fn init(
     // Board
     info.default_clickables.push(
         commands
-            .spawn(
-                ColliderBundle::new(ShapeHandle::new(Cuboid::new(Vector3::new(1.0, 0.007, 1.1))))
-                    .with_click_action(Action::move_camera(data.camera_nodes.board, 1.5)),
-            )
+            .spawn(ColliderBundle::new(ShapeHandle::new(Cuboid::new(
+                Vector3::new(1.0, 0.007, 1.1),
+            ))))
+            .with(data.camera_nodes.board)
             .with_children(|parent| {
                 parent.spawn_scene(asset_server.get_handle("board.gltf"));
             })
@@ -84,17 +85,9 @@ fn init(
                     })
                     .collect();
                 parent
-                    .spawn(
-                        ColliderBundle::new(ShapeHandle::new(TriMesh::new(
-                            vertices, indices, None,
-                        )))
-                        .with_click_action(Action::DebugPrint {
-                            text: format!("Clicked on {}-{}", location.name, sector),
-                        })
-                        .with_click_context(Context::PlaceTroops, &|entity| {
-                            Action::place_troop(entity, 1.0)
-                        }),
-                    )
+                    .spawn(ColliderBundle::new(ShapeHandle::new(TriMesh::new(
+                        vertices, indices, None,
+                    ))))
                     .with(LocationSector);
             }
         });
@@ -198,9 +191,9 @@ fn init(
             commands
                 .spawn(
                     ColliderBundle::new(shield_shape.clone())
-                        .with_transform(Transform::from_translation(Vec3::new(0.0, 0.27, 1.34)))
-                        .with_click_action(Action::move_camera(data.camera_nodes.shield, 1.5)),
+                        .with_transform(Transform::from_translation(Vec3::new(0.0, 0.27, 1.34))),
                 )
+                .with(data.camera_nodes.shield)
                 .with_bundle(UniqueBundle::new(faction))
                 .with_children(|parent| {
                     parent.spawn(PbrBundle {
@@ -222,17 +215,10 @@ fn init(
             });
             commands
                 .spawn(
-                    ColliderBundle::new(faction_prediction_shape.clone())
-                        .with_transform(
-                            Transform::from_scale(Vec3::splat(0.01))
-                                * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI)),
-                        )
-                        .with_click_action(Action::MakePrediction {
-                            prediction: Prediction {
-                                faction: Some(faction),
-                                turn: None,
-                            },
-                        }),
+                    ColliderBundle::new(faction_prediction_shape.clone()).with_transform(
+                        Transform::from_scale(Vec3::splat(0.01))
+                            * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI)),
+                    ),
                 )
                 .with_bundle(UniqueBundle::new(Faction::BeneGesserit))
                 .with(FactionPredictionCard { faction })
@@ -264,13 +250,9 @@ fn init(
 
                 commands
                     .spawn(
-                        ColliderBundle::new(big_token_shape.clone())
-                            .with_transform(Transform::from_translation(
-                                data.token_nodes.leaders[i],
-                            ))
-                            .with_click_action(Action::DebugPrint {
-                                text: format!("Clicked on {}'s token", leader.name),
-                            }),
+                        ColliderBundle::new(big_token_shape.clone()).with_transform(
+                            Transform::from_translation(data.token_nodes.leaders[i]),
+                        ),
                     )
                     .with_bundle(UniqueBundle::new(faction))
                     .with_children(|parent| {
@@ -292,13 +274,11 @@ fn init(
             for i in 0..20 {
                 commands
                     .spawn(
-                        ColliderBundle::new(little_token_shape.clone())
-                            .with_transform(Transform::from_translation(
+                        ColliderBundle::new(little_token_shape.clone()).with_transform(
+                            Transform::from_translation(
                                 data.token_nodes.fighters[0] + (i as f32 * 0.0036 * Vec3::unit_y()),
-                            ))
-                            .with_click_action(Action::DebugPrint {
-                                text: format!("Clicked on a troop token"),
-                            }),
+                            ),
+                        ),
                     )
                     .with_bundle(UniqueBundle::new(faction))
                     .with(Troop {
@@ -352,13 +332,11 @@ fn init(
                 };
                 commands
                     .spawn(
-                        ColliderBundle::new(spice_token_shape.clone())
-                            .with_transform(Transform::from_translation(
+                        ColliderBundle::new(spice_token_shape.clone()).with_transform(
+                            Transform::from_translation(
                                 data.token_nodes.spice[s] + (i as f32 * 0.0036 * Vec3::unit_y()),
-                            ))
-                            .with_click_action(Action::DebugPrint {
-                                text: format!("Clicked on a spice token"),
-                            }),
+                            ),
+                        ),
                     )
                     .with_bundle(UniqueBundle::new(faction))
                     .with(Spice { value })
@@ -395,17 +373,10 @@ fn init(
         });
         commands
             .spawn(
-                ColliderBundle::new(turn_prediction_shape.clone())
-                    .with_transform(
-                        Transform::from_scale(Vec3::splat(0.006))
-                            * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI)),
-                    )
-                    .with_click_action(Action::MakePrediction {
-                        prediction: Prediction {
-                            faction: None,
-                            turn: Some(turn),
-                        },
-                    }),
+                ColliderBundle::new(turn_prediction_shape.clone()).with_transform(
+                    Transform::from_scale(Vec3::splat(0.006))
+                        * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI)),
+                ),
             )
             .with_bundle(UniqueBundle::new(Faction::BeneGesserit))
             .with(TurnPredictionCard { turn })
@@ -431,7 +402,7 @@ fn init(
         ..Default::default()
     });
 
-    resources.treachery_deck = data
+    collections.treachery_deck = data
         .treachery_cards
         .iter()
         .enumerate()
@@ -469,7 +440,7 @@ fn init(
                 .unwrap()
         })
         .collect();
-    resources.treachery_deck.shuffle(&mut rng);
+    collections.treachery_deck.shuffle(&mut rng);
 
     let traitor_back_texture = asset_server.get_handle("traitor/traitor_back.png");
     let traitor_back_material = materials.add(StandardMaterial {
@@ -477,7 +448,7 @@ fn init(
         ..Default::default()
     });
 
-    resources.traitor_deck = data
+    collections.traitor_deck = data
         .leaders
         .iter()
         .enumerate()
@@ -514,7 +485,7 @@ fn init(
                 .unwrap()
         })
         .collect();
-    resources.traitor_deck.shuffle(&mut rng);
+    collections.traitor_deck.shuffle(&mut rng);
 
     let spice_back_texture = asset_server.get_handle("spice/spice_back.png");
     let spice_back_material = materials.add(StandardMaterial {
@@ -522,7 +493,7 @@ fn init(
         ..Default::default()
     });
 
-    resources.spice_deck = data
+    collections.spice_deck = data
         .spice_cards
         .iter()
         .enumerate()
@@ -557,7 +528,7 @@ fn init(
                 .unwrap()
         })
         .collect();
-    resources.spice_deck.shuffle(&mut rng);
+    collections.spice_deck.shuffle(&mut rng);
 
     let storm_back_texture = asset_server.get_handle("storm/storm_back.png");
     let storm_back_material = materials.add(StandardMaterial {
@@ -565,7 +536,7 @@ fn init(
         ..Default::default()
     });
 
-    resources.storm_deck = (1..7)
+    collections.storm_deck = (1..7)
         .map(|val| {
             let storm_front_texture =
                 asset_server.get_handle(format!("storm/storm_{}.png", val).as_str());
@@ -600,7 +571,7 @@ fn init(
                 .unwrap()
         })
         .collect();
-    resources.storm_deck.shuffle(&mut rng);
+    collections.storm_deck.shuffle(&mut rng);
 
     let deck_shape = ShapeHandle::new(Cuboid::new(Vector3::new(0.125, 0.03, 0.18)));
 
@@ -608,9 +579,9 @@ fn init(
         commands
             .spawn(
                 ColliderBundle::new(deck_shape.clone())
-                    .with_transform(Transform::from_translation(data.camera_nodes.treachery.at))
-                    .with_click_action(Action::move_camera(data.camera_nodes.treachery, 1.5)),
+                    .with_transform(Transform::from_translation(data.camera_nodes.treachery.at)),
             )
+            .with(data.camera_nodes.treachery)
             .current_entity()
             .unwrap(),
     );
@@ -619,9 +590,9 @@ fn init(
         commands
             .spawn(
                 ColliderBundle::new(deck_shape.clone())
-                    .with_transform(Transform::from_translation(data.camera_nodes.traitor.at))
-                    .with_click_action(Action::move_camera(data.camera_nodes.traitor, 1.5)),
+                    .with_transform(Transform::from_translation(data.camera_nodes.traitor.at)),
             )
+            .with(data.camera_nodes.traitor)
             .current_entity()
             .unwrap(),
     );
@@ -630,9 +601,9 @@ fn init(
         commands
             .spawn(
                 ColliderBundle::new(deck_shape.clone())
-                    .with_transform(Transform::from_translation(data.camera_nodes.spice.at))
-                    .with_click_action(Action::move_camera(data.camera_nodes.spice, 1.5)),
+                    .with_transform(Transform::from_translation(data.camera_nodes.spice.at)),
             )
+            .with(data.camera_nodes.spice)
             .current_entity()
             .unwrap(),
     );
@@ -641,9 +612,9 @@ fn init(
         commands
             .spawn(
                 ColliderBundle::new(deck_shape)
-                    .with_transform(Transform::from_translation(data.camera_nodes.storm.at))
-                    .with_click_action(Action::move_camera(data.camera_nodes.storm, 1.5)),
+                    .with_transform(Transform::from_translation(data.camera_nodes.storm.at)),
             )
+            .with(data.camera_nodes.storm)
             .current_entity()
             .unwrap(),
     );

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use bevy::{
     ecs::{Bundle, Entity},
     math::Vec3,
@@ -10,10 +8,7 @@ use ncollide3d::{
     shape::{Cuboid, ShapeHandle},
 };
 
-use crate::{
-    data::{Faction, Leader},
-    stack::{Action, ActionGenerator, Context},
-};
+use crate::data::{Faction, Leader};
 
 #[derive(Copy, Clone)]
 pub struct Spice {
@@ -61,12 +56,14 @@ pub struct Unique {
 #[derive(Clone)]
 pub struct Collider {
     pub shape: ShapeHandle<f32>,
+    pub enabled: bool,
 }
 
 impl Default for Collider {
     fn default() -> Self {
         Collider {
             shape: ShapeHandle::new(Cuboid::new(Vector3::new(0.5, 0.5, 0.5))),
+            enabled: false,
         }
     }
 }
@@ -76,44 +73,21 @@ pub struct ColliderBundle {
     transform: Transform,
     global_transform: GlobalTransform,
     collider: Collider,
-    click_action: ClickAction,
-    hover_action: HoverAction,
 }
 
 impl ColliderBundle {
     pub fn new(shape: ShapeHandle<f32>) -> Self {
         Self {
-            collider: Collider { shape },
+            collider: Collider {
+                shape,
+                enabled: false,
+            },
             ..Default::default()
         }
     }
 
     pub fn with_transform(mut self, transform: Transform) -> Self {
         self.transform = transform;
-        self
-    }
-
-    pub fn with_click_action(mut self, action: Action) -> Self {
-        self.click_action = self.click_action.with_base_action(action);
-        self
-    }
-
-    pub fn with_hover_action(mut self, action: Action) -> Self {
-        self.hover_action = self.hover_action.with_base_action(action);
-        self
-    }
-
-    pub fn with_click_context(
-        mut self,
-        context: Context,
-        generator: &'static ActionGenerator,
-    ) -> Self {
-        self.click_action = self.click_action.with_context(context, generator);
-        self
-    }
-
-    pub fn with_hover_context(mut self, context: Context, action: Action) -> Self {
-        self.hover_action = self.hover_action.with_context(context, action);
         self
     }
 }
@@ -143,60 +117,6 @@ impl UniqueBundle {
 pub struct Prediction {
     pub faction: Option<Faction>,
     pub turn: Option<i32>,
-}
-
-#[derive(Clone, Default)]
-pub struct ClickAction {
-    pub base_action: Option<Action>,
-    pub contextual_actions: HashMap<Context, Box<&'static ActionGenerator>>,
-    pub enabled: bool,
-}
-
-impl ClickAction {
-    fn new(base_action: Action) -> Self {
-        ClickAction {
-            base_action: Some(base_action),
-            contextual_actions: HashMap::new(),
-            enabled: false,
-        }
-    }
-
-    fn with_base_action(mut self, action: Action) -> Self {
-        self.base_action = Some(action);
-        self
-    }
-
-    fn with_context(mut self, context: Context, generator: &'static ActionGenerator) -> Self {
-        self.contextual_actions.insert(context, Box::new(generator));
-        self
-    }
-}
-
-#[derive(Clone, Default)]
-pub struct HoverAction {
-    pub base_action: Option<Action>,
-    pub contextual_actions: HashMap<Context, Action>,
-    pub enabled: bool,
-}
-
-impl HoverAction {
-    fn new(base_action: Action) -> Self {
-        HoverAction {
-            base_action: Some(base_action),
-            contextual_actions: HashMap::new(),
-            enabled: false,
-        }
-    }
-
-    fn with_base_action(mut self, action: Action) -> Self {
-        self.base_action = Some(action);
-        self
-    }
-
-    fn with_context(mut self, context: Context, action: Action) -> Self {
-        self.contextual_actions.insert(context, action);
-        self
-    }
 }
 
 pub struct Player {

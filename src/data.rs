@@ -74,7 +74,7 @@ pub enum Bonus {
     Harvesters,
 }
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub enum Effect {
+pub enum CardEffect {
     Worthless,
     PoisonWeapon,
     ProjectileWeapon,
@@ -90,57 +90,57 @@ pub enum Effect {
     WeatherControl,
 }
 
-impl Effect {
+impl CardEffect {
     fn description(&self) -> String {
         match self {
-            Effect::Worthless => 
+            CardEffect::Worthless => 
                 "Play as part of your Battle Plan, in place of weapon, defense, or both.
                 This card has no value in play, and you can discard it only by playing it in your Battle Plan.".to_string(),
-            Effect::PoisonWeapon => 
+            CardEffect::PoisonWeapon => 
                 "Play as part of your Battle Plan.
                 Kills enemy leader before the battle is resolved.
                 May be countered by an appropriate defense (Snooper).
                 You may keep this card if you win in this battle.".to_string(),
-            Effect::ProjectileWeapon => 
+            CardEffect::ProjectileWeapon => 
                 "Play as part of your Battle Plan.
                 Kills enemy leader before the battle is resolved.
                 May be countered by an appropriate defense (Shield).
                 You may keep this card if you win in this battle.".to_string(),
-            Effect::CheapHero => 
+            CardEffect::CheapHero => 
                 "Play as a leader with zero strength on your Battle Plan.
                 (leader allows you to play 1 weapon & 1 defense card on Battle Plan)
                 Can be played together with another leader, allowing you to return & save that leader immediately after both Battle Plans were revealed.".to_string(),
-            Effect::PoisonDefense => 
+            CardEffect::PoisonDefense => 
                 "Play as part of your Battle Plan.
                 Protects your leader from enemy poison weapon in this battle.
                 You may keep this card if you win in this battle.".to_string(),
-            Effect::ProjectileDefense => 
+            CardEffect::ProjectileDefense => 
                 "Play as part of your Battle Plan.
                 Protects your leader from enemy projectile weapon in this battle.
                 You may keep this card if you win in this battle.".to_string(),
-            Effect::Atomics =>
+            CardEffect::Atomics =>
                 "Play after the storm movement is calulated by before storm is moved, and only if you have token(s) on the Shield Wall or an adjacent territory.
                 All tokens in the Shield Wall are destroyed. Arrakeen, Imperial Basin & Carthag are no longer protected from the storm for the rest of the game.".to_string(),
-            Effect::Movement => 
+            CardEffect::Movement => 
                 "Play during Movement round.
                 Take an additional on-planet token movement subject to normal movement rules.
                 This may be the same or another group of your tokens.".to_string(),
-            Effect::Karama => 
+            CardEffect::Karama => 
                 "You may play this cartd to activate a single Karama Power of your choice.".to_string(),
-            Effect::Lasgun =>
+            CardEffect::Lasgun =>
                 "Play as part of your Battle Plan.
                 Automatically kills enemy leader regardless of defense card used.
                 You may keep this card if you win in this battle.
                 If anyone plays a Shield in this battle, and neither leader is a traitor, then all tokens and leaders in this battle's territory are killed. Both players lose this battle.".to_string(),
-            Effect::Revive =>
+            CardEffect::Revive =>
                 "Play at any time.
                 You may immediately revive 1 of your leaders of up to 5 of your tokens from the tanks to your reserves at no cost in spice.
                 Does not count against per-turn limits on revivals.".to_string(),
-            Effect::Truthtrance =>
+            CardEffect::Truthtrance =>
                 "Ask one other player a single yes/no question about the game which must be answered publicly.
-                No game or rule effect may interrupt the answer being given.
+                No game or rule CardEffect may interrupt the answer being given.
                 The player must answer 'yes' or 'no' truthfully.".to_string(),
-            Effect::WeatherControl =>
+            CardEffect::WeatherControl =>
                 "Play at the start of the Storm round, before the storm movement is calulated.
                 You control the storm this round and may move it from 0 to 10 sectors in a counterclockwise direction.".to_string()
         }
@@ -150,7 +150,7 @@ impl Effect {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct TreacheryCard {
     pub id: i32,
-    pub effect: Effect,
+    pub CardEffect: CardEffect,
     pub name: String,
     pub texture: String,
 }
@@ -213,5 +213,5 @@ pub struct TokenNodes {
     pub leaders: Vec<Vec3>,
     pub spice: Vec<Vec3>,
     pub fighters: Vec<Vec3>,
-    pub faction: Vec<Vec3>,
+    pub factions: Vec<Vec3>,
 }

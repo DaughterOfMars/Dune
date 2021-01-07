@@ -2,7 +2,7 @@ use std::fs::File;
 
 use bevy::ecs::Entity;
 
-use crate::data::*;
+use crate::{data::*, phase::Context};
 
 pub struct Data {
     pub leaders: Vec<Leader>,
@@ -45,6 +45,7 @@ pub struct Info {
     pub active_player: usize,
     pub play_order: Vec<Entity>,
     pub default_clickables: Vec<Entity>,
+    pub context: Context,
 }
 
 impl Info {
@@ -55,11 +56,12 @@ impl Info {
             active_player: 0,
             play_order: Vec::new(),
             default_clickables: Vec::new(),
+            context: Context::None,
         }
     }
 }
 
-pub struct Resources {
+pub struct Collections {
     pub spice_bank: Vec<Entity>,
     pub treachery_deck: Vec<Entity>,
     pub treachery_discard: Vec<Entity>,
@@ -70,7 +72,7 @@ pub struct Resources {
     pub storm_deck: Vec<Entity>,
 }
 
-impl Default for Resources {
+impl Default for Collections {
     fn default() -> Self {
         Self {
             spice_bank: Vec::new(),

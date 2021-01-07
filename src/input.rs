@@ -1,119 +1,201 @@
 use bevy::{prelude::*, render::camera::Camera};
-use ncollide3d::{
-    na::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3},
-    query::{Ray, RayCast},
-};
 
 use crate::{
-    components::{ClickAction, Collider},
+    components::{Collider, LocationSector, Prediction},
+    data::{CameraNode, FactionPredictionCard, TurnPredictionCard},
+    lerper::{Lerp, LerpType},
+    phase::{Action, ActionAggregation, ActionQueue, Context},
     resources::{Data, Info},
-    stack::{Action, ActionStack},
-    util::screen_to_world,
+    util::closest,
 };
 
-pub fn input_system(
-    mut stack: ResMut<ActionStack>,
-    info: Res<Info>,
+const STAGE: &str = "input";
+
+pub struct InputPlugin;
+
+impl Plugin for InputPlugin {
+    fn build(&self, app: &mut AppBuilder) {
+        app.add_stage(STAGE, SystemStage::parallel())
+            .add_system_to_stage(STAGE, camera_system.system())
+            .add_system_to_stage(STAGE, sector_context_system.system())
+            .add_system_to_stage(STAGE, prediction_context_system.system());
+    }
+}
+
+pub fn camera_system(
+    commands: &mut Commands,
     data: Res<Data>,
     windows: Res<Windows>,
     mouse_input: Res<Input<MouseButton>>,
     keyboard_input: Res<Input<KeyCode>>,
-    cameras: Query<(&Transform, &Camera)>,
-    colliders: Query<(Entity, &Collider, &Transform, &ClickAction)>,
+    cameras: Query<(&Camera, &Transform)>,
+    mut camera: Query<Entity, (With<Camera>, Without<Lerp>)>,
+    colliders: Query<(Entity, &Collider, &Transform, &CameraNode)>,
 ) {
-    let (input_enabled, context) = match stack.peek() {
-        Some(Action::Await { context, .. }) => (true, context),
-        None => (true, &None),
-        _ => (false, &None),
-    };
-    if input_enabled {
+    if mouse_input.just_pressed(MouseButton::Left) {
+        if let Some(camera) = camera.iter_mut().next() {
+            if let Some((_, &cam_node)) = closest(&windows, &cameras, &colliders) {
+                commands.insert_one(
+                    camera,
+                    Lerp {
+                        lerp_type: LerpType::Camera {
+                            src: None,
+                            dest: cam_node,
+                        },
+                        time: 1.0,
+                        delay: 0.0,
+                    },
+                );
+            }
+        }
+    } else if keyboard_input.just_pressed(KeyCode::Escape) {
+        if let Some(mut camera) = camera.iter_mut().next() {
+            commands.insert_one(
+                camera,
+                Lerp {
+                    lerp_type: LerpType::Camera {
+                        src: None,
+                        dest: data.camera_nodes.main,
+                    },
+                    time: 1.0,
+                    delay: 0.0,
+                },
+            );
+        }
+    }
+}
+
+fn sector_context_system(
+    mut info: ResMut<Info>,
+    windows: Res<Windows>,
+    mouse_input: Res<Input<MouseButton>>,
+    cameras: Query<(&Camera, &Transform)>,
+    colliders: Query<(Entity, &Collider, &Transform, &LocationSector)>,
+) {
+    if info.context != Context::None {
         if mouse_input.just_pressed(MouseButton::Left) {
-            if let Some((&cam_transform, camera)) = cameras.iter().next() {
-                if let Some(window) = windows.get_primary() {
-                    if let Some(pos) = window.cursor_position() {
-                        let ss_pos = Vec2::new(
-                            2.0 * (pos.x / window.physical_width() as f32) - 1.0,
-                            2.0 * (pos.y / window.physical_height() as f32) - 1.0,
-                        );
-                        let p0 = screen_to_world(
-                            ss_pos.extend(0.0),
-                            cam_transform,
-                            camera.projection_matrix,
-                        );
-                        let p1 = screen_to_world(
-                            ss_pos.extend(1.0),
-                            cam_transform,
-                            camera.projection_matrix,
-                        );
-                        let dir = (p1 - p0).normalize();
-                        let ray = Ray::new(
-                            Point3::new(p0.x, p0.y, p0.z),
-                            Vector3::new(dir.x, dir.y, dir.z),
-                        );
-                        let (mut closest_toi, mut closest_action) = (None, None);
-                        for (collider, transform, action) in
-                            colliders
-                                .iter()
-                                .filter_map(|(entity, collider, transform, action)| {
-                                    if action.enabled {
-                                        if let Some(context) = context {
-                                            if let Some(generator) =
-                                                action.contextual_actions.get(context)
-                                            {
-                                                return Some((
-                                                    collider,
-                                                    transform,
-                                                    generator(entity),
-                                                ));
-                                            }
-                                        }
-                                    }
-                                    if let Some(action) = action.base_action.as_ref() {
-                                        return Some((collider, transform, action.clone()));
-                                    }
-                                    None
-                                })
-                        {
-                            let (axis, angle) = transform.rotation.to_axis_angle();
-                            let angleaxis = axis * angle;
-                            if let Some(toi) = collider.shape.toi_with_ray(
-                                &Isometry3::from_parts(
-                                    Translation3::new(
-                                        transform.translation.x,
-                                        transform.translation.y,
-                                        transform.translation.z,
-                                    ),
-                                    UnitQuaternion::new(Vector3::new(
-                                        angleaxis.x,
-                                        angleaxis.y,
-                                        angleaxis.z,
-                                    )),
-                                ),
-                                &ray,
-                                100.0,
-                                true,
-                            ) {
-                                println!("Toi: {}", toi);
-                                if closest_toi.is_none() {
-                                    closest_toi = Some(toi);
-                                    closest_action = Some(action);
-                                } else {
-                                    if toi < closest_toi.unwrap() {
-                                        closest_toi = Some(toi);
-                                        closest_action = Some(action);
-                                    }
-                                }
-                            }
-                        }
-                        if let Some(action) = closest_action {
-                            stack.pop();
-                            stack.push(action);
-                        }
+            if let Some((_, sector)) = closest(&windows, &cameras, &colliders) {
+                match info.context {
+                    Context::PlacingTroops => {
+                        todo!();
+                        info.context = Context::None;
                     }
+                    _ => (),
                 }
             }
-        } else if keyboard_input.just_pressed(KeyCode::Escape) {
-            stack.push(Action::move_camera(data.camera_nodes.main, 1.5));
+        }
+    }
+}
+
+fn prediction_context_system(
+    info: Res<Info>,
+    data: Res<Data>,
+    mut queue: ResMut<ActionQueue>,
+    windows: Res<Windows>,
+    mouse_input: Res<Input<MouseButton>>,
+    cameras: Query<(&Camera, &Transform)>,
+    colliders: QuerySet<(
+        Query<(Entity, &Collider, &Transform, &FactionPredictionCard)>,
+        Query<(Entity, &Collider, &Transform, &TurnPredictionCard)>,
+    )>,
+    mut predictions: Query<&mut Prediction>,
+) {
+    if info.context != Context::None {
+        if mouse_input.just_pressed(MouseButton::Left) {
+            match info.context {
+                Context::Predicting => {
+                    if let Some((element, faction_card)) =
+                        closest(&windows, &cameras, colliders.q0())
+                    {
+                        if let Some(mut player_prediction) = predictions.iter_mut().next() {
+                            player_prediction.faction = Some(faction_card.faction);
+                        }
+                        let num_factions = info.factions_in_play.len();
+                        let animation_time = 1.5;
+                        let delay = animation_time / (2.0 * num_factions as f32);
+                        let indiv_anim_time = animation_time - (delay * (num_factions - 1) as f32);
+                        // Animate selected card
+                        let chosen_action = Action::add_lerp(
+                            element,
+                            Lerp {
+                                lerp_type: LerpType::UI {
+                                    src: None,
+                                    dest: data.prediction_nodes.chosen_faction,
+                                },
+                                time: 1.0,
+                                delay: 0.0,
+                            },
+                        );
+
+                        // Animate out faction cards
+                        let mut out_actions = colliders
+                            .q0()
+                            .iter()
+                            .filter(|(_, _, _, card)| card.faction != faction_card.faction)
+                            .enumerate()
+                            .map(|(i, (element, _, _, _))| {
+                                Action::add_lerp(
+                                    element,
+                                    Lerp {
+                                        lerp_type: LerpType::UI {
+                                            src: None,
+                                            dest: data.prediction_nodes.src,
+                                        },
+                                        time: indiv_anim_time,
+                                        delay: 1.0 + (delay * i as f32),
+                                    },
+                                )
+                            })
+                            .collect::<Vec<_>>();
+                        out_actions.push(chosen_action);
+                        queue.push_front(ActionAggregation::Multiple(out_actions));
+                    }
+                    if let Some((element, turn_card)) = closest(&windows, &cameras, &colliders.q1())
+                    {
+                        if let Some(mut player_prediction) = predictions.iter_mut().next() {
+                            player_prediction.turn = Some(turn_card.turn);
+                        }
+                        let animation_time = 1.5;
+                        let delay = animation_time / 30.0;
+                        let indiv_anim_time = animation_time - (delay * 14.0);
+                        // Animate selected card
+                        let chosen_action = Action::add_lerp(
+                            element,
+                            Lerp {
+                                lerp_type: LerpType::UI {
+                                    src: None,
+                                    dest: data.prediction_nodes.chosen_turn,
+                                },
+                                time: 1.0,
+                                delay: 0.0,
+                            },
+                        );
+                        // Animate out turn cards
+                        let mut out_actions = colliders
+                            .q1()
+                            .iter()
+                            .filter(|(_, _, _, card)| card.turn != turn_card.turn)
+                            .enumerate()
+                            .map(|(i, (element, _, _, _))| {
+                                Action::add_lerp(
+                                    element,
+                                    Lerp {
+                                        lerp_type: LerpType::UI {
+                                            src: None,
+                                            dest: data.prediction_nodes.src,
+                                        },
+                                        time: indiv_anim_time,
+                                        delay: 1.0 + (delay * i as f32),
+                                    },
+                                )
+                            })
+                            .collect::<Vec<_>>();
+                        out_actions.push(chosen_action);
+                        queue.push_front(ActionAggregation::Multiple(out_actions));
+                    }
+                }
+                _ => (),
+            }
         }
     }
 }
