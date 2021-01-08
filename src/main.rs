@@ -11,9 +11,9 @@ mod util;
 use components::*;
 use data::*;
 use input::InputPlugin;
-use phase::*;
+use lerper::LerpPlugin;
+use phase::PhasePlugin;
 use resources::*;
-use stack::*;
 use util::divide_spice;
 
 use bevy::{prelude::*, render::camera::PerspectiveProjection};
@@ -36,13 +36,13 @@ fn main() {
         .add_resource(Info::new())
         .add_resource(Collections::default())
         .add_resource(crate::phase::State::default())
-        .add_resource(ActionQueue::default())
-        .add_resource(EffectStack::default())
         .add_plugins(DefaultPlugins)
         .add_plugin(InputPlugin)
         .add_plugin(PhasePlugin)
+        .add_plugin(LerpPlugin)
         .add_startup_system(init.system())
-        .add_system(propagate_visibility.system())
+        .add_stage("end", SystemStage::parallel())
+        .add_system_to_stage("end", propagate_visibility.system())
         .run();
 }
 

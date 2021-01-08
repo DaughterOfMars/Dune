@@ -150,7 +150,7 @@ impl CardEffect {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct TreacheryCard {
     pub id: i32,
-    pub CardEffect: CardEffect,
+    pub effect: CardEffect,
     pub name: String,
     pub texture: String,
 }

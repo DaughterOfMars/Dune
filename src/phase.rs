@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::{
     components::Collider,
+    data::TurnPredictionCard,
     lerper::{Lerp, LerpType},
     resources::Collections,
 };
@@ -12,7 +13,6 @@ use crate::{
     components::{LocationSector, Player, Storm, Unique},
     data::{Faction, FactionPredictionCard, Leader, StormCard, TreacheryCard},
     resources::{Data, Info},
-    util::set_view_to_active_player,
 };
 
 #[macro_export]
@@ -35,7 +35,8 @@ pub struct PhasePlugin;
 
 impl Plugin for PhasePlugin {
     fn build(&self, app: &mut AppBuilder) {
-        app.add_stage(STAGE, SystemStage::parallel())
+        app.add_resource(ActionQueue::default())
+            .add_stage(STAGE, SystemStage::parallel())
             .add_system_to_stage(STAGE, action_system.system())
             .add_system_to_stage(STAGE, active_player_system.system())
             .add_system_to_stage(STAGE, setup_phase_system.system())
@@ -70,9 +71,36 @@ impl Action {
     }
 }
 
+impl std::fmt::Display for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Action::Enable { clickables } => write!(f, "Enable"),
+            Action::PassTurn => write!(f, "PassTurn"),
+            Action::AdvancePhase => write!(f, "AdvancePhase"),
+            Action::Lerp { element, lerp } => write!(f, "Lerp"),
+            Action::ContextChange { context } => write!(f, "ContextChange"),
+        }
+    }
+}
+
 pub enum ActionAggregation {
     Single(Action),
     Multiple(Vec<Action>),
+}
+
+impl std::fmt::Display for ActionAggregation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Single(action) => write!(f, "Single({})", action),
+            Self::Multiple(actions) => {
+                let mut s = String::from("Multiple(");
+                for action in actions {
+                    s.push_str(&format!("{},", action));
+                }
+                write!(f, "{})", s)
+            }
+        }
+    }
 }
 
 pub struct ActionQueue(VecDeque<ActionAggregation>);
@@ -117,6 +145,16 @@ impl ActionQueue {
     }
 }
 
+impl std::fmt::Display for ActionQueue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = String::new();
+        for item in self.0.iter() {
+            s.push_str(&format!("{}, ", item));
+        }
+        write!(f, "{}", s)
+    }
+}
+
 enum ActionResult {
     None,
     Remove,
@@ -131,6 +169,7 @@ pub fn action_system(
     mut queue: ResMut<ActionQueue>,
     mut queries: QuerySet<(Query<&Lerp>, Query<&Player>, Query<&mut Collider>)>,
 ) {
+    //println!("Queue: {}", *queue);
     if info.context == Context::None {
         if let Some(aggregate) = queue.peek_mut() {
             match aggregate {
@@ -169,6 +208,11 @@ pub fn action_system(
                             }
                         }
                     }
+                    if new_actions.is_empty() {
+                        queue.pop();
+                    } else {
+                        *actions = new_actions;
+                    }
                 }
             }
         }
@@ -195,14 +239,19 @@ fn action_subsystem(
             ActionResult::Remove
         }
         Action::PassTurn => {
-            info.active_player += 1;
-            if info.active_player >= info.play_order.len() {
-                info.active_player %= info.play_order.len();
-                ActionResult::Replace {
-                    action: Action::AdvancePhase,
-                }
-            } else {
+            if info.active_player.is_some() {
+                info.active_player = None;
                 ActionResult::Remove
+            } else {
+                info.current_turn += 1;
+                if info.current_turn >= info.play_order.len() {
+                    info.current_turn %= info.play_order.len();
+                    ActionResult::Replace {
+                        action: Action::AdvancePhase,
+                    }
+                } else {
+                    ActionResult::Remove
+                }
             }
         }
         Action::AdvancePhase => {
@@ -233,10 +282,14 @@ fn active_player_system(
     players: Query<&Player>,
     mut uniques: Query<(&mut Visible, &Unique)>,
 ) {
-    let entity = info.play_order[info.active_player];
+    let entity = info
+        .active_player
+        .unwrap_or(info.play_order[info.current_turn]);
     let active_player_faction = players.get(entity).unwrap().faction;
     for (mut visible, unique) in uniques.iter_mut() {
-        visible.is_visible = unique.faction == active_player_faction;
+        if visible.is_visible != (unique.faction == active_player_faction) {
+            visible.is_visible = unique.faction == active_player_faction;
+        }
     }
 }
 
@@ -251,7 +304,7 @@ pub fn setup_phase_system(
     mut traitor_cards: Query<(Entity, &mut Transform, &Leader)>,
     prediction_cards: QuerySet<(
         Query<(Entity, &FactionPredictionCard)>,
-        Query<(Entity, &FactionPredictionCard)>,
+        Query<(Entity, &TurnPredictionCard)>,
     )>,
     mut uniques: Query<(&mut Visible, &Unique)>,
     clickable_locations: Query<(Entity, &LocationSector)>,
@@ -262,15 +315,12 @@ pub fn setup_phase_system(
             match subphase {
                 SetupSubPhase::ChooseFactions => {
                     // skip for now
-                    set_view_to_active_player(&info, &mut players, &mut uniques);
                     state.phase.advance();
                 }
                 SetupSubPhase::Prediction => {
-                    for (_, player) in players.iter_mut() {
+                    for (entity, player) in players.iter_mut() {
                         if player.faction == Faction::BeneGesserit {
-                            for (mut visible, unique) in uniques.iter_mut() {
-                                visible.is_visible = unique.faction == Faction::BeneGesserit;
-                            }
+                            info.active_player = Some(entity);
                             // Lerp in faction cards
                             let num_factions = info.factions_in_play.len();
                             let animation_time = 1.5;
@@ -285,14 +335,14 @@ pub fn setup_phase_system(
                                 .map(|(i, (element, _))| {
                                     Action::add_lerp(
                                         element,
-                                        Lerp {
-                                            lerp_type: LerpType::UI {
+                                        Lerp::new(
+                                            LerpType::UI {
                                                 src: Some(data.prediction_nodes.src),
                                                 dest: data.prediction_nodes.factions[i],
                                             },
-                                            time: indiv_anim_time,
-                                            delay: delay * i as f32,
-                                        },
+                                            indiv_anim_time,
+                                            delay * i as f32,
+                                        ),
                                     )
                                 })
                                 .collect::<Vec<_>>();
@@ -319,14 +369,14 @@ pub fn setup_phase_system(
                                 .map(|(i, (element, _))| {
                                     Action::add_lerp(
                                         element,
-                                        Lerp {
-                                            lerp_type: LerpType::UI {
+                                        Lerp::new(
+                                            LerpType::UI {
                                                 src: Some(data.prediction_nodes.src),
                                                 dest: data.prediction_nodes.turns[i],
                                             },
-                                            time: indiv_anim_time,
-                                            delay: delay * i as f32,
-                                        },
+                                            indiv_anim_time,
+                                            delay * i as f32,
+                                        ),
                                     )
                                 })
                                 .collect::<Vec<_>>();
@@ -336,16 +386,16 @@ pub fn setup_phase_system(
                                 .iter()
                                 .map(|(element, _)| element)
                                 .collect();
-                            queue.push(ActionAggregation::Single(Action::Enable { clickables }));
-                            queue.push(ActionAggregation::Single(Action::ContextChange {
+                            queue.push(single!(Action::Enable { clickables }));
+                            queue.push(single!(Action::ContextChange {
                                 context: Context::Predicting,
                             }));
+                            queue.push(single!(Action::AdvancePhase));
                             break;
                         }
                     }
                 }
                 SetupSubPhase::AtStart => {
-                    //let players = players.iter_mut().collect::<HashMap<_, _>>();
                     let clickables = clickable_locations
                         .iter()
                         .map(|(entity, _)| entity)
@@ -353,8 +403,7 @@ pub fn setup_phase_system(
 
                     let mut actions_map = players
                         .iter_mut()
-                        .map(|(entity, player)| {
-                            let (troops, locations, _) = player.faction.initial_values();
+                        .map(|(entity, _)| {
                             (
                                 entity,
                                 vec![
@@ -367,18 +416,21 @@ pub fn setup_phase_system(
                         })
                         .collect::<HashMap<_, _>>();
 
-                    let mut faction_order = info
+                    let faction_order = info
                         .play_order
                         .iter()
                         .map(|&entity| (entity, players.get_mut(entity).unwrap().1.faction))
-                        .enumerate();
+                        .enumerate()
+                        .collect::<Vec<_>>();
 
                     let (bg_pos, fr_pos) = (
                         faction_order
+                            .iter()
                             .find(|(_, (_, faction))| *faction == Faction::BeneGesserit)
                             .unwrap()
                             .0,
                         faction_order
+                            .iter()
                             .find(|(_, (_, faction))| *faction == Faction::Fremen)
                             .unwrap()
                             .0,
@@ -386,19 +438,19 @@ pub fn setup_phase_system(
 
                     queue.push(single!(Action::Enable { clickables }));
                     queue.extend(if bg_pos < fr_pos {
-                        let order = faction_order.collect::<Vec<_>>();
-                        order[..bg_pos]
+                        faction_order[..bg_pos]
                             .iter()
-                            .chain(std::iter::once(&order[fr_pos]))
-                            .chain(std::iter::once(&order[bg_pos]))
-                            .chain(order[bg_pos + 1..fr_pos].iter())
-                            .chain(order[fr_pos + 1..].iter())
+                            .chain(std::iter::once(&faction_order[fr_pos]))
+                            .chain(std::iter::once(&faction_order[bg_pos]))
+                            .chain(faction_order[bg_pos + 1..fr_pos].iter())
+                            .chain(faction_order[fr_pos + 1..].iter())
                             .map(|(_, (entity, _))| actions_map.remove(entity).unwrap())
                             .flatten()
                             .map(|action| single!(action))
                             .collect::<Vec<_>>()
                     } else {
                         faction_order
+                            .iter()
                             .map(|(_, (entity, _))| actions_map.remove(&entity).unwrap())
                             .flatten()
                             .map(|action| single!(action))

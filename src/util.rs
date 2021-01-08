@@ -18,18 +18,6 @@ pub fn screen_to_world(ss_pos: Vec3, transform: Transform, v: Mat4) -> Vec3 {
     p.xyz() / p.w
 }
 
-pub fn set_view_to_active_player(
-    info: &ResMut<Info>,
-    players: &mut Query<(Entity, &mut Player)>,
-    uniques: &mut Query<(&mut Visible, &Unique)>,
-) {
-    let entity = info.play_order[info.active_player];
-    let active_player_faction = players.get_mut(entity).unwrap().1.faction;
-    for (mut visible, unique) in uniques.iter_mut() {
-        visible.is_visible = unique.faction == active_player_faction;
-    }
-}
-
 pub fn divide_spice(mut total: i32) -> (i32, i32, i32, i32) {
     let (mut tens, mut fives, mut twos, mut ones) = (0, 0, 0, 0);
     while total > 0 {

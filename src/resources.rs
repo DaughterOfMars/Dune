@@ -42,7 +42,8 @@ impl Data {
 pub struct Info {
     pub turn: i32,
     pub factions_in_play: Vec<Faction>,
-    pub active_player: usize,
+    pub current_turn: usize,
+    pub active_player: Option<Entity>,
     pub play_order: Vec<Entity>,
     pub default_clickables: Vec<Entity>,
     pub context: Context,
@@ -53,7 +54,8 @@ impl Info {
         Self {
             turn: 0,
             factions_in_play: Vec::new(),
-            active_player: 0,
+            current_turn: 0,
+            active_player: None,
             play_order: Vec::new(),
             default_clickables: Vec::new(),
             context: Context::None,

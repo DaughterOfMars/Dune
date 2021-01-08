@@ -37,14 +37,14 @@ pub fn camera_system(
             if let Some((_, &cam_node)) = closest(&windows, &cameras, &colliders) {
                 commands.insert_one(
                     camera,
-                    Lerp {
-                        lerp_type: LerpType::Camera {
+                    Lerp::new(
+                        LerpType::Camera {
                             src: None,
                             dest: cam_node,
                         },
-                        time: 1.0,
-                        delay: 0.0,
-                    },
+                        1.0,
+                        0.0,
+                    ),
                 );
             }
         }
@@ -52,14 +52,14 @@ pub fn camera_system(
         if let Some(mut camera) = camera.iter_mut().next() {
             commands.insert_one(
                 camera,
-                Lerp {
-                    lerp_type: LerpType::Camera {
+                Lerp::new(
+                    LerpType::Camera {
                         src: None,
                         dest: data.camera_nodes.main,
                     },
-                    time: 1.0,
-                    delay: 0.0,
-                },
+                    1.0,
+                    0.0,
+                ),
             );
         }
     }
@@ -72,23 +72,26 @@ fn sector_context_system(
     cameras: Query<(&Camera, &Transform)>,
     colliders: Query<(Entity, &Collider, &Transform, &LocationSector)>,
 ) {
-    if info.context != Context::None {
-        if mouse_input.just_pressed(MouseButton::Left) {
-            if let Some((_, sector)) = closest(&windows, &cameras, &colliders) {
-                match info.context {
-                    Context::PlacingTroops => {
-                        todo!();
-                        info.context = Context::None;
+    match info.context {
+        Context::PlacingTroops => {
+            if mouse_input.just_pressed(MouseButton::Left) {
+                if let Some((_, sector)) = closest(&windows, &cameras, &colliders) {
+                    match info.context {
+                        Context::PlacingTroops => {
+                            todo!();
+                            info.context = Context::None;
+                        }
+                        _ => (),
                     }
-                    _ => (),
                 }
             }
         }
+        _ => (),
     }
 }
 
 fn prediction_context_system(
-    info: Res<Info>,
+    mut info: ResMut<Info>,
     data: Res<Data>,
     mut queue: ResMut<ActionQueue>,
     windows: Res<Windows>,
@@ -100,101 +103,95 @@ fn prediction_context_system(
     )>,
     mut predictions: Query<&mut Prediction>,
 ) {
-    if info.context != Context::None {
+    if info.context == Context::Predicting {
         if mouse_input.just_pressed(MouseButton::Left) {
-            match info.context {
-                Context::Predicting => {
-                    if let Some((element, faction_card)) =
-                        closest(&windows, &cameras, colliders.q0())
-                    {
-                        if let Some(mut player_prediction) = predictions.iter_mut().next() {
-                            player_prediction.faction = Some(faction_card.faction);
-                        }
-                        let num_factions = info.factions_in_play.len();
-                        let animation_time = 1.5;
-                        let delay = animation_time / (2.0 * num_factions as f32);
-                        let indiv_anim_time = animation_time - (delay * (num_factions - 1) as f32);
-                        // Animate selected card
-                        let chosen_action = Action::add_lerp(
-                            element,
-                            Lerp {
-                                lerp_type: LerpType::UI {
-                                    src: None,
-                                    dest: data.prediction_nodes.chosen_faction,
-                                },
-                                time: 1.0,
-                                delay: 0.0,
-                            },
-                        );
-
-                        // Animate out faction cards
-                        let mut out_actions = colliders
-                            .q0()
-                            .iter()
-                            .filter(|(_, _, _, card)| card.faction != faction_card.faction)
-                            .enumerate()
-                            .map(|(i, (element, _, _, _))| {
-                                Action::add_lerp(
-                                    element,
-                                    Lerp {
-                                        lerp_type: LerpType::UI {
-                                            src: None,
-                                            dest: data.prediction_nodes.src,
-                                        },
-                                        time: indiv_anim_time,
-                                        delay: 1.0 + (delay * i as f32),
-                                    },
-                                )
-                            })
-                            .collect::<Vec<_>>();
-                        out_actions.push(chosen_action);
-                        queue.push_front(ActionAggregation::Multiple(out_actions));
-                    }
-                    if let Some((element, turn_card)) = closest(&windows, &cameras, &colliders.q1())
-                    {
-                        if let Some(mut player_prediction) = predictions.iter_mut().next() {
-                            player_prediction.turn = Some(turn_card.turn);
-                        }
-                        let animation_time = 1.5;
-                        let delay = animation_time / 30.0;
-                        let indiv_anim_time = animation_time - (delay * 14.0);
-                        // Animate selected card
-                        let chosen_action = Action::add_lerp(
-                            element,
-                            Lerp {
-                                lerp_type: LerpType::UI {
-                                    src: None,
-                                    dest: data.prediction_nodes.chosen_turn,
-                                },
-                                time: 1.0,
-                                delay: 0.0,
-                            },
-                        );
-                        // Animate out turn cards
-                        let mut out_actions = colliders
-                            .q1()
-                            .iter()
-                            .filter(|(_, _, _, card)| card.turn != turn_card.turn)
-                            .enumerate()
-                            .map(|(i, (element, _, _, _))| {
-                                Action::add_lerp(
-                                    element,
-                                    Lerp {
-                                        lerp_type: LerpType::UI {
-                                            src: None,
-                                            dest: data.prediction_nodes.src,
-                                        },
-                                        time: indiv_anim_time,
-                                        delay: 1.0 + (delay * i as f32),
-                                    },
-                                )
-                            })
-                            .collect::<Vec<_>>();
-                        out_actions.push(chosen_action);
-                        queue.push_front(ActionAggregation::Multiple(out_actions));
-                    }
+            if let Some((element, faction_card)) = closest(&windows, &cameras, colliders.q0()) {
+                if let Some(mut player_prediction) = predictions.iter_mut().next() {
+                    player_prediction.faction = Some(faction_card.faction);
                 }
-                _ => (),
+                let num_factions = info.factions_in_play.len();
+                let animation_time = 1.5;
+                let delay = animation_time / (2.0 * num_factions as f32);
+                let indiv_anim_time = animation_time - (delay * (num_factions - 1) as f32);
+                // Animate selected card
+                let chosen_action = Action::add_lerp(
+                    element,
+                    Lerp::new(
+                        LerpType::UI {
+                            src: None,
+                            dest: data.prediction_nodes.chosen_faction,
+                        },
+                        1.0,
+                        0.0,
+                    ),
+                );
+
+                // Animate out faction cards
+                let mut out_actions = colliders
+                    .q0()
+                    .iter()
+                    .filter(|(_, _, _, card)| card.faction != faction_card.faction)
+                    .enumerate()
+                    .map(|(i, (element, _, _, _))| {
+                        Action::add_lerp(
+                            element,
+                            Lerp::new(
+                                LerpType::UI {
+                                    src: None,
+                                    dest: data.prediction_nodes.src,
+                                },
+                                indiv_anim_time,
+                                1.0 + (delay * i as f32),
+                            ),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                out_actions.push(chosen_action);
+                queue.push_front(ActionAggregation::Multiple(out_actions));
+                info.context = Context::None;
+            }
+            if let Some((element, turn_card)) = closest(&windows, &cameras, &colliders.q1()) {
+                if let Some(mut player_prediction) = predictions.iter_mut().next() {
+                    player_prediction.turn = Some(turn_card.turn);
+                }
+                let animation_time = 1.5;
+                let delay = animation_time / 30.0;
+                let indiv_anim_time = animation_time - (delay * 14.0);
+                // Animate selected card
+                let chosen_action = Action::add_lerp(
+                    element,
+                    Lerp::new(
+                        LerpType::UI {
+                            src: None,
+                            dest: data.prediction_nodes.chosen_turn,
+                        },
+                        1.0,
+                        0.0,
+                    ),
+                );
+                // Animate out turn cards
+                let mut out_actions = colliders
+                    .q1()
+                    .iter()
+                    .filter(|(_, _, _, card)| card.turn != turn_card.turn)
+                    .enumerate()
+                    .map(|(i, (element, _, _, _))| {
+                        Action::add_lerp(
+                            element,
+                            Lerp::new(
+                                LerpType::UI {
+                                    src: None,
+                                    dest: data.prediction_nodes.src,
+                                },
+                                indiv_anim_time,
+                                1.0 + (delay * i as f32),
+                            ),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                out_actions.push(chosen_action);
+                queue.push_front(ActionAggregation::Multiple(out_actions));
+                info.context = Context::None;
             }
         }
     }
