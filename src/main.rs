@@ -621,13 +621,13 @@ fn init(
 }
 
 fn propagate_visibility(
-    root: Query<(&Visible, Option<&Children>), (Without<Parent>, Changed<Visible>)>,
+    root: Query<(&Visible, &Children), (Without<Parent>, Changed<Visible>)>,
     mut children: Query<&mut Visible, With<Parent>>,
 ) {
     for (visible, root_children) in root.iter() {
-        if let Some(root_children) = root_children {
-            for &child in root_children.iter() {
-                if let Ok(mut child_visible) = children.get_mut(child) {
+        for &child in root_children.iter() {
+            if let Ok(mut child_visible) = children.get_mut(child) {
+                if child_visible.is_visible != visible.is_visible {
                     child_visible.is_visible = visible.is_visible;
                 }
             }

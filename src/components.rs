@@ -106,7 +106,7 @@ impl UniqueBundle {
                 public: false,
             },
             visible: Visible {
-                is_visible: false,
+                is_visible: true,
                 ..Default::default()
             },
         }

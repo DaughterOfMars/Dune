@@ -390,6 +390,7 @@ pub fn setup_phase_system(
                             queue.push(single!(Action::ContextChange {
                                 context: Context::Predicting,
                             }));
+                            queue.push(single!(Action::PassTurn));
                             queue.push(single!(Action::AdvancePhase));
                             break;
                         }
