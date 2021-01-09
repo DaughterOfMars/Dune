@@ -1,11 +1,12 @@
 use bevy::{prelude::*, render::camera::Camera};
 
 use crate::{
-    components::{Collider, LocationSector, Player, Prediction, Troop},
+    components::{Collider, LocationSector, Player, Prediction, Troop, Unique},
     data::{CameraNode, FactionPredictionCard, TurnPredictionCard},
     lerper::{Lerp, LerpType},
-    phase::{Action, ActionAggregation, ActionQueue, Context},
+    phase::{Action, ActionAggregation, ActionQueue, Context, ContextAction},
     resources::{Data, Info},
+    single,
     util::{closest, closest_mut, MutRayCastResult, RayCastResult},
 };
 
@@ -71,7 +72,7 @@ pub fn camera_system(
 }
 
 fn sector_context_system(
-    mut info: ResMut<Info>,
+    info: Res<Info>,
     mut queue: ResMut<ActionQueue>,
     windows: Res<Windows>,
     mouse_input: Res<Input<MouseButton>>,
@@ -79,6 +80,7 @@ fn sector_context_system(
     colliders: Query<(Entity, &Collider, &Transform, &LocationSector)>,
     players: Query<&Player>,
     mut troops: Query<(Entity, &Collider, &Transform, &mut Troop)>,
+    uniques: Query<&Unique>,
 ) {
     match info.context {
         Context::PlacingTroops => {
@@ -115,10 +117,13 @@ fn sector_context_system(
                                 } else {
                                     place = true;
                                 }
-                                println!("Place: {}", place);
                                 if place {
                                     let (lerp_entity, _, _, mut new_troop) = troops
                                         .iter_mut()
+                                        .filter(|(entity, _, _, _)| {
+                                            uniques.get(*entity).unwrap().faction
+                                                == active_player.faction
+                                        })
                                         .max_by(|(_, _, transform1, _), (_, _, transform2, _)| {
                                             transform1
                                                 .translation
@@ -160,14 +165,24 @@ fn sector_context_system(
                                             0.0,
                                         )
                                     };
-                                    queue.push_single_front(Action::add_lerp(lerp_entity, lerp));
                                     if troops
                                         .iter_mut()
                                         .filter(|(_, _, _, troop)| troop.location.is_some())
                                         .count()
+                                        + 1
                                         == num_troops as usize
                                     {
-                                        info.context = Context::None;
+                                        queue.push_seq_front(vec![
+                                            info.context
+                                                .action(Action::add_lerp(lerp_entity, lerp)),
+                                            info.context
+                                                .action(Action::ContextChange(Context::None)),
+                                        ]);
+                                    } else {
+                                        queue.push_front(
+                                            info.context
+                                                .action(Action::add_lerp(lerp_entity, lerp)),
+                                        );
                                     }
                                 } else {
                                     println!("Tried to place troop in an invalid location!");
@@ -189,7 +204,7 @@ fn sector_context_system(
 }
 
 fn prediction_context_system(
-    mut info: ResMut<Info>,
+    info: Res<Info>,
     data: Res<Data>,
     mut queue: ResMut<ActionQueue>,
     windows: Res<Windows>,
@@ -250,8 +265,10 @@ fn prediction_context_system(
                     })
                     .collect::<Vec<_>>();
                 out_actions.push(chosen_action);
-                queue.push_front(ActionAggregation::Multiple(out_actions));
-                info.context = Context::None;
+                queue.push_seq_front(vec![
+                    info.context.actions(out_actions),
+                    info.context.action(Action::ContextChange(Context::None)),
+                ]);
             }
             if let Some(RayCastResult {
                 intersection: _,
@@ -298,8 +315,10 @@ fn prediction_context_system(
                     })
                     .collect::<Vec<_>>();
                 out_actions.push(chosen_action);
-                queue.push_front(ActionAggregation::Multiple(out_actions));
-                info.context = Context::None;
+                queue.push_seq_front(vec![
+                    info.context.actions(out_actions),
+                    info.context.action(Action::ContextChange(Context::None)),
+                ]);
             }
         }
     }

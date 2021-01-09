@@ -55,12 +55,29 @@ pub enum Context {
     StackResolving,
 }
 
+impl Context {
+    pub fn action(&self, action: Action) -> ContextAction {
+        ContextAction {
+            action: single!(action),
+            context: *self,
+        }
+    }
+
+    pub fn actions(&self, actions: Vec<Action>) -> ContextAction {
+        ContextAction {
+            action: ActionAggregation::Multiple(actions),
+            context: *self,
+        }
+    }
+}
+
 pub enum Action {
     Enable { clickables: Vec<Entity> },
+    SetActivePlayer { player: Entity },
     PassTurn,
     AdvancePhase,
     Lerp { element: Entity, lerp: Option<Lerp> },
-    ContextChange { context: Context },
+    ContextChange(Context),
     Delay { time: f32 },
 }
 
@@ -76,13 +93,43 @@ impl Action {
 impl std::fmt::Display for Action {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Action::Enable { clickables } => write!(f, "Enable"),
+            Action::Enable { .. } => write!(f, "Enable"),
             Action::PassTurn => write!(f, "PassTurn"),
             Action::AdvancePhase => write!(f, "AdvancePhase"),
-            Action::Lerp { element, lerp } => write!(f, "Lerp"),
-            Action::ContextChange { context } => write!(f, "ContextChange({:?})", context),
+            Action::Lerp { .. } => write!(f, "Lerp"),
+            Action::ContextChange(context) => write!(f, "ContextChange({:?})", context),
             Action::Delay { time } => write!(f, "Delay({})", time),
+            Action::SetActivePlayer { player } => write!(f, "SetActivePlayer({:?})", player),
         }
+    }
+}
+
+pub struct ContextAction {
+    action: ActionAggregation,
+    context: Context,
+}
+
+impl Into<ContextAction> for Action {
+    fn into(self) -> ContextAction {
+        ContextAction {
+            action: single!(self),
+            context: Context::None,
+        }
+    }
+}
+
+impl Into<ContextAction> for ActionAggregation {
+    fn into(self) -> ContextAction {
+        ContextAction {
+            action: self,
+            context: Context::None,
+        }
+    }
+}
+
+impl std::fmt::Display for ContextAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}-{}", self.context, self.action)
     }
 }
 
@@ -106,7 +153,7 @@ impl std::fmt::Display for ActionAggregation {
     }
 }
 
-pub struct ActionQueue(VecDeque<ActionAggregation>);
+pub struct ActionQueue(VecDeque<ContextAction>);
 
 impl Default for ActionQueue {
     fn default() -> Self {
@@ -119,39 +166,57 @@ impl ActionQueue {
         self.0.is_empty()
     }
 
-    pub fn push(&mut self, action: ActionAggregation) {
+    pub fn push(&mut self, action: ContextAction) {
         self.0.push_back(action)
     }
 
     pub fn push_single(&mut self, action: Action) {
-        self.0.push_back(single!(action))
+        self.0.push_back(action.into())
+    }
+
+    pub fn push_single_for_context(&mut self, action: Action, context: Context) {
+        self.0.push_back(context.action(action))
     }
 
     pub fn push_multiple(&mut self, actions: Vec<Action>) {
-        self.0.push_back(ActionAggregation::Multiple(actions))
+        self.0
+            .push_back(ActionAggregation::Multiple(actions).into())
     }
 
-    pub fn push_front(&mut self, action: ActionAggregation) {
+    pub fn push_multiple_for_context(&mut self, actions: Vec<Action>, context: Context) {
+        self.0.push_back(context.actions(actions))
+    }
+
+    pub fn push_front(&mut self, action: ContextAction) {
         self.0.push_front(action)
     }
 
     pub fn push_single_front(&mut self, action: Action) {
-        self.0.push_front(single!(action))
+        self.0.push_front(action.into())
+    }
+
+    pub fn push_single_front_for_context(&mut self, action: Action, context: Context) {
+        self.0.push_front(context.action(action))
     }
 
     pub fn push_multiple_front(&mut self, actions: Vec<Action>) {
-        self.0.push_front(ActionAggregation::Multiple(actions))
+        self.0
+            .push_front(ActionAggregation::Multiple(actions).into())
     }
 
-    pub fn peek(&self) -> Option<&ActionAggregation> {
+    pub fn push_multiple_front_for_context(&mut self, actions: Vec<Action>, context: Context) {
+        self.0.push_front(context.actions(actions))
+    }
+
+    pub fn peek(&self) -> Option<&ContextAction> {
         self.0.front()
     }
 
-    pub fn peek_mut(&mut self) -> Option<&mut ActionAggregation> {
+    pub fn peek_mut(&mut self) -> Option<&mut ContextAction> {
         self.0.front_mut()
     }
 
-    pub fn pop(&mut self) -> Option<ActionAggregation> {
+    pub fn pop(&mut self) -> Option<ContextAction> {
         self.0.pop_front()
     }
 
@@ -159,11 +224,11 @@ impl ActionQueue {
         self.0.len()
     }
 
-    pub fn extend<T: IntoIterator<Item = ActionAggregation>>(&mut self, iter: T) {
+    pub fn extend<T: IntoIterator<Item = ContextAction>>(&mut self, iter: T) {
         self.0.extend(iter);
     }
 
-    pub fn push_seq_front<T: IntoIterator<Item = ActionAggregation>>(&mut self, iter: T)
+    pub fn push_seq_front<T: IntoIterator<Item = ContextAction>>(&mut self, iter: T)
     where
         <T as IntoIterator>::IntoIter: DoubleEndedIterator,
     {
@@ -209,8 +274,13 @@ pub fn action_system(
     //    "Active player: {:?}",
     //    queries.q1().get(info.get_active_player()).unwrap().faction
     //);
-    if info.context == Context::None {
-        if let Some(aggregate) = queue.peek_mut() {
+
+    if let Some(ContextAction {
+        action: aggregate,
+        context,
+    }) = queue.peek_mut()
+    {
+        if info.context == *context {
             match aggregate {
                 ActionAggregation::Single(action) => {
                     match action_subsystem(
@@ -287,17 +357,49 @@ fn action_subsystem(
             ActionResult::Remove
         }
         Action::PassTurn => {
+            print!(
+                "Pass turn from {:?}",
+                queries
+                    .q1_mut()
+                    .get(info.get_active_player())
+                    .unwrap()
+                    .faction
+            );
             if info.active_player.is_some() {
                 info.active_player = None;
+                println!(
+                    " to {:?}",
+                    queries
+                        .q1_mut()
+                        .get(info.get_active_player())
+                        .unwrap()
+                        .faction
+                );
                 ActionResult::Remove
             } else {
                 info.current_turn += 1;
                 if info.current_turn >= info.play_order.len() {
                     info.current_turn %= info.play_order.len();
+                    println!(
+                        " to {:?}",
+                        queries
+                            .q1_mut()
+                            .get(info.get_active_player())
+                            .unwrap()
+                            .faction
+                    );
                     ActionResult::Replace {
                         action: Action::AdvancePhase,
                     }
                 } else {
+                    println!(
+                        " to {:?}",
+                        queries
+                            .q1_mut()
+                            .get(info.get_active_player())
+                            .unwrap()
+                            .faction
+                    );
                     ActionResult::Remove
                 }
             }
@@ -308,17 +410,19 @@ fn action_subsystem(
         }
         Action::Lerp { element, lerp } => {
             if let Some(lerp) = lerp.take() {
+                //println!("Starting lerp: {}", lerp.time);
                 commands.insert_one(*element, lerp);
                 return ActionResult::None;
             }
             if let Ok(lerp) = queries.q0().get(*element) {
                 if lerp.time <= 0.0 {
+                    //println!("Lerp Complete");
                     return ActionResult::Remove;
                 }
             }
             ActionResult::None
         }
-        Action::ContextChange { context } => {
+        Action::ContextChange(context) => {
             info.context = *context;
             ActionResult::Remove
         }
@@ -329,6 +433,10 @@ fn action_subsystem(
             } else {
                 ActionResult::None
             }
+        }
+        Action::SetActivePlayer { player } => {
+            info.active_player = Some(*player);
+            ActionResult::Remove
         }
     }
 }
@@ -371,7 +479,7 @@ pub fn setup_phase_system(
     mut uniques: Query<(&mut Visible, &Unique)>,
     clickable_locations: Query<(Entity, &LocationSector)>,
     cameras: Query<Entity, With<Camera>>,
-    mut troops: Query<(Entity, &mut Troop, &Transform)>,
+    mut troops: Query<(Entity, &mut Troop, &Unique, &Transform)>,
 ) {
     // We need to resolve any pending actions first
     if queue.is_empty() {
@@ -417,9 +525,7 @@ pub fn setup_phase_system(
                                 .map(|(element, _)| element)
                                 .collect();
                             queue.push_single(Action::Enable { clickables });
-                            queue.push_single(Action::ContextChange {
-                                context: Context::Predicting,
-                            });
+                            queue.push_single(Action::ContextChange(Context::Predicting));
 
                             // Lerp in Turn Cards
                             let animation_time = 1.5;
@@ -451,9 +557,7 @@ pub fn setup_phase_system(
                                 .map(|(element, _)| element)
                                 .collect();
                             queue.push_single(Action::Enable { clickables });
-                            queue.push_single(Action::ContextChange {
-                                context: Context::Predicting,
-                            });
+                            queue.push_single(Action::ContextChange(Context::Predicting));
                             queue.push_single(Action::PassTurn);
                             queue.push_single(Action::AdvancePhase);
                             break;
@@ -475,8 +579,10 @@ pub fn setup_phase_system(
                                 // Check if we even have free troops to place
                                 if num_troops > 0 {
                                     if let Some(locations) = locations {
-                                        let mut res = if locations.len() == 0 {
-                                            Vec::new()
+                                        let mut res =
+                                            vec![Action::SetActivePlayer { player: entity }];
+                                        if locations.len() == 0 {
+                                            // Do nothing
                                         } else if locations.len() == 1 {
                                             let (location, loc_sec) = clickable_locations
                                                 .iter()
@@ -484,10 +590,14 @@ pub fn setup_phase_system(
                                                     loc_sec.location.name == locations[0]
                                                 })
                                                 .unwrap();
-                                            let mut troop_stack =
-                                                troops.iter_mut().collect::<Vec<_>>();
+                                            let mut troop_stack = troops
+                                                .iter_mut()
+                                                .filter(|(_, _, unique, _)| {
+                                                    unique.faction == player.faction
+                                                })
+                                                .collect::<Vec<_>>();
                                             troop_stack.sort_by(
-                                                |(_, _, transform1), (_, _, transform2)| {
+                                                |(_, _, _, transform1), (_, _, _, transform2)| {
                                                     transform1
                                                         .translation
                                                         .y
@@ -495,12 +605,13 @@ pub fn setup_phase_system(
                                                         .unwrap()
                                                 },
                                             );
-                                            (0..num_troops)
-                                                .map(|i| {
-                                                    troop_stack[i as usize].1.location =
-                                                        Some(location);
+                                            res.extend((0..num_troops).map(|i| {
+                                                if let Some((entity, troop, _, _)) =
+                                                    troop_stack.get_mut(i as usize)
+                                                {
+                                                    troop.location = Some(location);
                                                     Action::add_lerp(
-                                                        entity,
+                                                        *entity,
                                                         Lerp::new(
                                                             LerpType::World {
                                                                 src: None,
@@ -519,25 +630,22 @@ pub fn setup_phase_system(
                                                             0.0,
                                                         ),
                                                     )
-                                                })
-                                                .collect::<Vec<_>>()
+                                                } else {
+                                                    panic!();
+                                                }
+                                            }));
                                         } else {
-                                            vec![Action::ContextChange {
-                                                context: Context::PlacingTroops,
-                                            }]
+                                            res.push(Action::ContextChange(Context::PlacingTroops));
                                         };
-                                        res.push(Action::PassTurn);
                                         res
                                     } else {
                                         vec![
-                                            Action::ContextChange {
-                                                context: Context::PlacingTroops,
-                                            },
-                                            Action::PassTurn,
+                                            Action::SetActivePlayer { player: entity },
+                                            Action::ContextChange(Context::PlacingTroops),
                                         ]
                                     }
                                 } else {
-                                    vec![Action::PassTurn]
+                                    vec![]
                                 },
                             )
                         })
@@ -578,14 +686,14 @@ pub fn setup_phase_system(
                             .chain(faction_order[fr_pos + 1..].iter())
                             .map(|(_, (entity, _))| actions_map.remove(entity).unwrap())
                             .flatten()
-                            .map(|action| single!(action))
+                            .map(|action| action.into())
                             .collect::<Vec<_>>()
                     } else {
                         faction_order
                             .iter()
                             .map(|(_, (entity, _))| actions_map.remove(&entity).unwrap())
                             .flatten()
-                            .map(|action| single!(action))
+                            .map(|action| action.into())
                             .collect::<Vec<_>>()
                     });
                 }
@@ -606,9 +714,7 @@ pub fn setup_phase_system(
                     // TODO: Add traitor cards as clickables
                     todo!();
                     queue.push_single(Action::Enable { clickables: vec![] });
-                    queue.push_single(Action::ContextChange {
-                        context: Context::PickingTraitors,
-                    });
+                    queue.push_single(Action::ContextChange(Context::PickingTraitors));
                     queue.push_single(Action::PassTurn);
                 }
                 SetupSubPhase::DealTreachery => {
@@ -661,9 +767,7 @@ pub fn storm_phase_system(
                         // TODO: Add weather control card as clickable
                         todo!();
                         queue.push_single(Action::Enable { clickables: vec![] });
-                        queue.push_single(Action::ContextChange {
-                            context: Context::Prompting,
-                        });
+                        queue.push_single(Action::ContextChange(Context::Prompting));
                         queue.push_single(Action::PassTurn);
                     }
                 }
@@ -674,9 +778,7 @@ pub fn storm_phase_system(
                     {
                         // TODO: Add family atomics as clickable
                         queue.push_single(Action::Enable { clickables: vec![] });
-                        queue.push_single(Action::ContextChange {
-                            context: Context::Prompting,
-                        });
+                        queue.push_single(Action::ContextChange(Context::Prompting));
                         queue.push_single(Action::PassTurn);
                     }
                 }

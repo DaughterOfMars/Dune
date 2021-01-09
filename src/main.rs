@@ -365,7 +365,7 @@ fn init(
         })
         .collect();
 
-    info.play_order.shuffle(&mut rng);
+    //info.play_order.shuffle(&mut rng);
 
     (1..=15).for_each(|turn| {
         let prediction_front_texture =
