@@ -88,7 +88,10 @@ fn init(
                     .spawn(ColliderBundle::new(ShapeHandle::new(TriMesh::new(
                         vertices, indices, None,
                     ))))
-                    .with(LocationSector);
+                    .with(LocationSector {
+                        location: location.clone(),
+                        sector,
+                    });
             }
         });
 

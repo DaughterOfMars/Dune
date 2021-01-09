@@ -8,7 +8,7 @@ use ncollide3d::{
     shape::{Cuboid, ShapeHandle},
 };
 
-use crate::data::{Faction, Leader};
+use crate::data::{Faction, Leader, Location};
 
 #[derive(Copy, Clone)]
 pub struct Spice {
@@ -26,9 +26,8 @@ pub struct Storm {
     pub sector: i32,
 }
 
-pub struct LocationSector;
-
-pub struct Sector {
+pub struct LocationSector {
+    pub location: Location,
     pub sector: i32,
 }
 

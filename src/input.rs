@@ -1,12 +1,12 @@
 use bevy::{prelude::*, render::camera::Camera};
 
 use crate::{
-    components::{Collider, LocationSector, Prediction},
+    components::{Collider, LocationSector, Player, Prediction, Troop},
     data::{CameraNode, FactionPredictionCard, TurnPredictionCard},
     lerper::{Lerp, LerpType},
     phase::{Action, ActionAggregation, ActionQueue, Context},
     resources::{Data, Info},
-    util::closest,
+    util::{closest, closest_mut, MutRayCastResult, RayCastResult},
 };
 
 const STAGE: &str = "input";
@@ -29,12 +29,17 @@ pub fn camera_system(
     mouse_input: Res<Input<MouseButton>>,
     keyboard_input: Res<Input<KeyCode>>,
     cameras: Query<(&Camera, &Transform)>,
-    mut camera: Query<Entity, (With<Camera>, Without<Lerp>)>,
+    camera: Query<Entity, (With<Camera>, Without<Lerp>)>,
     colliders: Query<(Entity, &Collider, &Transform, &CameraNode)>,
 ) {
     if mouse_input.just_pressed(MouseButton::Left) {
-        if let Some(camera) = camera.iter_mut().next() {
-            if let Some((_, &cam_node)) = closest(&windows, &cameras, &colliders) {
+        if let Some(camera) = camera.iter().next() {
+            if let Some(RayCastResult {
+                intersection: _,
+                entity: _,
+                component: &cam_node,
+            }) = closest(&windows, &cameras, &colliders)
+            {
                 commands.insert_one(
                     camera,
                     Lerp::new(
@@ -49,7 +54,7 @@ pub fn camera_system(
             }
         }
     } else if keyboard_input.just_pressed(KeyCode::Escape) {
-        if let Some(mut camera) = camera.iter_mut().next() {
+        if let Some(camera) = camera.iter().next() {
             commands.insert_one(
                 camera,
                 Lerp::new(
@@ -67,26 +72,119 @@ pub fn camera_system(
 
 fn sector_context_system(
     mut info: ResMut<Info>,
+    mut queue: ResMut<ActionQueue>,
     windows: Res<Windows>,
     mouse_input: Res<Input<MouseButton>>,
     cameras: Query<(&Camera, &Transform)>,
     colliders: Query<(Entity, &Collider, &Transform, &LocationSector)>,
+    players: Query<&Player>,
+    mut troops: Query<(Entity, &Collider, &Transform, &mut Troop)>,
 ) {
     match info.context {
         Context::PlacingTroops => {
             if mouse_input.just_pressed(MouseButton::Left) {
-                if let Some((_, sector)) = closest(&windows, &cameras, &colliders) {
+                if let Some(RayCastResult {
+                    intersection,
+                    entity: location_entity,
+                    component: location_sector,
+                }) = closest(&windows, &cameras, &colliders)
+                {
+                    println!(
+                        "Clicked on {}-{}",
+                        location_sector.location.name, location_sector.sector
+                    );
                     match info.context {
                         Context::PlacingTroops => {
-                            todo!();
-                            info.context = Context::None;
+                            if let Ok(active_player) = players.get(info.get_active_player()) {
+                                println!("Active player: {:?}", active_player.faction);
+                                let (num_troops, locations, _) =
+                                    active_player.faction.initial_values();
+
+                                let mut place = false;
+                                println!("Valid Locations: {:?}", locations);
+                                if let Some(locations) = locations {
+                                    if locations
+                                        .iter()
+                                        .find(|name| {
+                                            name.as_str() == location_sector.location.name.as_str()
+                                        })
+                                        .is_some()
+                                    {
+                                        place = true;
+                                    }
+                                } else {
+                                    place = true;
+                                }
+                                println!("Place: {}", place);
+                                if place {
+                                    let (lerp_entity, _, _, mut new_troop) = troops
+                                        .iter_mut()
+                                        .max_by(|(_, _, transform1, _), (_, _, transform2, _)| {
+                                            transform1
+                                                .translation
+                                                .y
+                                                .partial_cmp(&transform2.translation.y)
+                                                .unwrap()
+                                        })
+                                        .unwrap();
+                                    new_troop.location = Some(location_entity);
+                                    let lerp = if let Some(MutRayCastResult {
+                                        intersection: _,
+                                        entity,
+                                        component: _,
+                                    }) = closest_mut(&windows, &cameras, &mut troops)
+                                    {
+                                        let troop_transform =
+                                            troops.get_component::<Transform>(entity).unwrap();
+                                        Lerp::new(
+                                            LerpType::World {
+                                                src: None,
+                                                dest: *troop_transform
+                                                    * Transform::from_translation(
+                                                        0.0036 * Vec3::unit_y(),
+                                                    ),
+                                            },
+                                            1.0,
+                                            0.0,
+                                        )
+                                    } else {
+                                        Lerp::new(
+                                            LerpType::World {
+                                                src: None,
+                                                dest: Transform::from_translation(intersection)
+                                                    * Transform::from_translation(
+                                                        0.0018 * Vec3::unit_y(),
+                                                    ),
+                                            },
+                                            1.0,
+                                            0.0,
+                                        )
+                                    };
+                                    queue.push_single_front(Action::add_lerp(lerp_entity, lerp));
+                                    if troops
+                                        .iter_mut()
+                                        .filter(|(_, _, _, troop)| troop.location.is_some())
+                                        .count()
+                                        == num_troops as usize
+                                    {
+                                        info.context = Context::None;
+                                    }
+                                } else {
+                                    println!("Tried to place troop in an invalid location!");
+                                }
+                            }
                         }
                         _ => (),
                     }
                 }
             }
         }
-        _ => (),
+
+        Context::None => {}
+        Context::Predicting => {}
+        Context::PickingTraitors => {}
+        Context::Prompting => {}
+        Context::StackResolving => {}
     }
 }
 
@@ -105,7 +203,12 @@ fn prediction_context_system(
 ) {
     if info.context == Context::Predicting {
         if mouse_input.just_pressed(MouseButton::Left) {
-            if let Some((element, faction_card)) = closest(&windows, &cameras, colliders.q0()) {
+            if let Some(RayCastResult {
+                intersection: _,
+                entity: element,
+                component: faction_card,
+            }) = closest(&windows, &cameras, colliders.q0())
+            {
                 if let Some(mut player_prediction) = predictions.iter_mut().next() {
                     player_prediction.faction = Some(faction_card.faction);
                 }
@@ -150,7 +253,12 @@ fn prediction_context_system(
                 queue.push_front(ActionAggregation::Multiple(out_actions));
                 info.context = Context::None;
             }
-            if let Some((element, turn_card)) = closest(&windows, &cameras, &colliders.q1()) {
+            if let Some(RayCastResult {
+                intersection: _,
+                entity: element,
+                component: turn_card,
+            }) = closest(&windows, &cameras, &colliders.q1())
+            {
                 if let Some(mut player_prediction) = predictions.iter_mut().next() {
                     player_prediction.turn = Some(turn_card.turn);
                 }

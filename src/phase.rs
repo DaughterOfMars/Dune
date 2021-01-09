@@ -1,12 +1,12 @@
 use std::collections::{HashMap, VecDeque};
 
 use crate::{
-    components::Collider,
+    components::{Collider, Troop},
     data::TurnPredictionCard,
     lerper::{Lerp, LerpType},
     resources::Collections,
 };
-use bevy::prelude::*;
+use bevy::{prelude::*, render::camera::Camera};
 use rand::{prelude::SliceRandom, Rng};
 
 use crate::{
@@ -38,13 +38,14 @@ impl Plugin for PhasePlugin {
         app.add_resource(ActionQueue::default())
             .add_stage(STAGE, SystemStage::parallel())
             .add_system_to_stage(STAGE, action_system.system())
+            .add_system_to_stage(STAGE, public_troop_system.system())
             .add_system_to_stage(STAGE, active_player_system.system())
             .add_system_to_stage(STAGE, setup_phase_system.system())
             .add_system_to_stage(STAGE, storm_phase_system.system());
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Copy, Clone)]
+#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
 pub enum Context {
     None,
     Predicting,
@@ -60,6 +61,7 @@ pub enum Action {
     AdvancePhase,
     Lerp { element: Entity, lerp: Option<Lerp> },
     ContextChange { context: Context },
+    Delay { time: f32 },
 }
 
 impl Action {
@@ -78,7 +80,8 @@ impl std::fmt::Display for Action {
             Action::PassTurn => write!(f, "PassTurn"),
             Action::AdvancePhase => write!(f, "AdvancePhase"),
             Action::Lerp { element, lerp } => write!(f, "Lerp"),
-            Action::ContextChange { context } => write!(f, "ContextChange"),
+            Action::ContextChange { context } => write!(f, "ContextChange({:?})", context),
+            Action::Delay { time } => write!(f, "Delay({})", time),
         }
     }
 }
@@ -91,13 +94,13 @@ pub enum ActionAggregation {
 impl std::fmt::Display for ActionAggregation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Single(action) => write!(f, "Single({})", action),
+            Self::Single(action) => write!(f, "{}", action),
             Self::Multiple(actions) => {
-                let mut s = String::from("Multiple(");
+                let mut s = String::from("[");
                 for action in actions {
                     s.push_str(&format!("{},", action));
                 }
-                write!(f, "{})", s)
+                write!(f, "{}]", s)
             }
         }
     }
@@ -120,8 +123,24 @@ impl ActionQueue {
         self.0.push_back(action)
     }
 
+    pub fn push_single(&mut self, action: Action) {
+        self.0.push_back(single!(action))
+    }
+
+    pub fn push_multiple(&mut self, actions: Vec<Action>) {
+        self.0.push_back(ActionAggregation::Multiple(actions))
+    }
+
     pub fn push_front(&mut self, action: ActionAggregation) {
         self.0.push_front(action)
+    }
+
+    pub fn push_single_front(&mut self, action: Action) {
+        self.0.push_front(single!(action))
+    }
+
+    pub fn push_multiple_front(&mut self, actions: Vec<Action>) {
+        self.0.push_front(ActionAggregation::Multiple(actions))
     }
 
     pub fn peek(&self) -> Option<&ActionAggregation> {
@@ -142,6 +161,21 @@ impl ActionQueue {
 
     pub fn extend<T: IntoIterator<Item = ActionAggregation>>(&mut self, iter: T) {
         self.0.extend(iter);
+    }
+
+    pub fn push_seq_front<T: IntoIterator<Item = ActionAggregation>>(&mut self, iter: T)
+    where
+        <T as IntoIterator>::IntoIter: DoubleEndedIterator,
+    {
+        let mut iter = iter.into_iter().rev();
+        while let Some(element) = iter.next() {
+            if self.0.len() == self.0.capacity() {
+                let (lower, _) = iter.size_hint();
+                self.0.reserve(lower.saturating_add(1));
+            }
+
+            self.0.push_front(element);
+        }
     }
 }
 
@@ -164,17 +198,29 @@ enum ActionResult {
 
 pub fn action_system(
     commands: &mut Commands,
+    time: Res<Time>,
     mut info: ResMut<Info>,
     mut state: ResMut<State>,
     mut queue: ResMut<ActionQueue>,
     mut queries: QuerySet<(Query<&Lerp>, Query<&Player>, Query<&mut Collider>)>,
 ) {
-    //println!("Queue: {}", *queue);
+    //println!("Context: {:?}, Queue: {}", info.context, queue.to_string());
+    //println!(
+    //    "Active player: {:?}",
+    //    queries.q1().get(info.get_active_player()).unwrap().faction
+    //);
     if info.context == Context::None {
         if let Some(aggregate) = queue.peek_mut() {
             match aggregate {
                 ActionAggregation::Single(action) => {
-                    match action_subsystem(commands, action, &mut info, &mut state, &mut queries) {
+                    match action_subsystem(
+                        commands,
+                        action,
+                        &time,
+                        &mut info,
+                        &mut state,
+                        &mut queries,
+                    ) {
                         ActionResult::None => (),
                         ActionResult::Remove => {
                             queue.pop();
@@ -183,7 +229,7 @@ pub fn action_system(
                             *action = new_action;
                         }
                         ActionResult::Add { action: new_action } => {
-                            queue.push(ActionAggregation::Single(new_action));
+                            queue.push_single(new_action);
                         }
                     }
                 }
@@ -193,6 +239,7 @@ pub fn action_system(
                         match action_subsystem(
                             commands,
                             &mut action,
+                            &time,
                             &mut info,
                             &mut state,
                             &mut queries,
@@ -222,6 +269,7 @@ pub fn action_system(
 fn action_subsystem(
     commands: &mut Commands,
     action: &mut Action,
+    time: &Res<Time>,
     info: &mut ResMut<Info>,
     state: &mut ResMut<State>,
     queries: &mut QuerySet<(Query<&Lerp>, Query<&Player>, Query<&mut Collider>)>,
@@ -274,6 +322,20 @@ fn action_subsystem(
             info.context = *context;
             ActionResult::Remove
         }
+        Action::Delay { time: remaining } => {
+            *remaining -= time.delta_seconds();
+            if *remaining <= 0.0 {
+                ActionResult::Remove
+            } else {
+                ActionResult::None
+            }
+        }
+    }
+}
+
+fn public_troop_system(mut troops: Query<(&Troop, &mut Unique), Changed<Troop>>) {
+    for (troop, mut unique) in troops.iter_mut() {
+        unique.public = troop.location.is_some();
     }
 }
 
@@ -287,8 +349,8 @@ fn active_player_system(
         .unwrap_or(info.play_order[info.current_turn]);
     let active_player_faction = players.get(entity).unwrap().faction;
     for (mut visible, unique) in uniques.iter_mut() {
-        if visible.is_visible != (unique.faction == active_player_faction) {
-            visible.is_visible = unique.faction == active_player_faction;
+        if visible.is_visible != (unique.public || unique.faction == active_player_faction) {
+            visible.is_visible = unique.public || unique.faction == active_player_faction;
         }
     }
 }
@@ -308,6 +370,8 @@ pub fn setup_phase_system(
     )>,
     mut uniques: Query<(&mut Visible, &Unique)>,
     clickable_locations: Query<(Entity, &LocationSector)>,
+    cameras: Query<Entity, With<Camera>>,
+    mut troops: Query<(Entity, &mut Troop, &Transform)>,
 ) {
     // We need to resolve any pending actions first
     if queue.is_empty() {
@@ -346,16 +410,16 @@ pub fn setup_phase_system(
                                     )
                                 })
                                 .collect::<Vec<_>>();
-                            queue.push(ActionAggregation::Multiple(actions));
+                            queue.push_multiple(actions);
                             let clickables = prediction_cards
                                 .q0()
                                 .iter()
                                 .map(|(element, _)| element)
                                 .collect();
-                            queue.push(single!(Action::Enable { clickables }));
-                            queue.push(single!(Action::ContextChange {
+                            queue.push_single(Action::Enable { clickables });
+                            queue.push_single(Action::ContextChange {
                                 context: Context::Predicting,
-                            }));
+                            });
 
                             // Lerp in Turn Cards
                             let animation_time = 1.5;
@@ -380,18 +444,18 @@ pub fn setup_phase_system(
                                     )
                                 })
                                 .collect::<Vec<_>>();
-                            queue.push(ActionAggregation::Multiple(actions));
+                            queue.push_multiple(actions);
                             let clickables = prediction_cards
                                 .q1()
                                 .iter()
                                 .map(|(element, _)| element)
                                 .collect();
-                            queue.push(single!(Action::Enable { clickables }));
-                            queue.push(single!(Action::ContextChange {
+                            queue.push_single(Action::Enable { clickables });
+                            queue.push_single(Action::ContextChange {
                                 context: Context::Predicting,
-                            }));
-                            queue.push(single!(Action::PassTurn));
-                            queue.push(single!(Action::AdvancePhase));
+                            });
+                            queue.push_single(Action::PassTurn);
+                            queue.push_single(Action::AdvancePhase);
                             break;
                         }
                     }
@@ -404,15 +468,77 @@ pub fn setup_phase_system(
 
                     let mut actions_map = players
                         .iter_mut()
-                        .map(|(entity, _)| {
+                        .map(|(entity, player)| {
+                            let (num_troops, locations, _) = player.faction.initial_values();
                             (
                                 entity,
-                                vec![
-                                    Action::ContextChange {
-                                        context: Context::PlacingTroops,
-                                    },
-                                    Action::PassTurn,
-                                ],
+                                // Check if we even have free troops to place
+                                if num_troops > 0 {
+                                    if let Some(locations) = locations {
+                                        let mut res = if locations.len() == 0 {
+                                            Vec::new()
+                                        } else if locations.len() == 1 {
+                                            let (location, loc_sec) = clickable_locations
+                                                .iter()
+                                                .find(|(_, loc_sec)| {
+                                                    loc_sec.location.name == locations[0]
+                                                })
+                                                .unwrap();
+                                            let mut troop_stack =
+                                                troops.iter_mut().collect::<Vec<_>>();
+                                            troop_stack.sort_by(
+                                                |(_, _, transform1), (_, _, transform2)| {
+                                                    transform1
+                                                        .translation
+                                                        .y
+                                                        .partial_cmp(&transform2.translation.y)
+                                                        .unwrap()
+                                                },
+                                            );
+                                            (0..num_troops)
+                                                .map(|i| {
+                                                    troop_stack[i as usize].1.location =
+                                                        Some(location);
+                                                    Action::add_lerp(
+                                                        entity,
+                                                        Lerp::new(
+                                                            LerpType::World {
+                                                                src: None,
+                                                                dest: Transform::from_translation(
+                                                                    loc_sec.location.sectors
+                                                                        [&loc_sec.sector]
+                                                                        .fighters[0],
+                                                                )
+                                                                    * Transform::from_translation(
+                                                                        i as f32
+                                                                            * 0.0018
+                                                                            * Vec3::unit_y(),
+                                                                    ),
+                                                            },
+                                                            0.1,
+                                                            0.0,
+                                                        ),
+                                                    )
+                                                })
+                                                .collect::<Vec<_>>()
+                                        } else {
+                                            vec![Action::ContextChange {
+                                                context: Context::PlacingTroops,
+                                            }]
+                                        };
+                                        res.push(Action::PassTurn);
+                                        res
+                                    } else {
+                                        vec![
+                                            Action::ContextChange {
+                                                context: Context::PlacingTroops,
+                                            },
+                                            Action::PassTurn,
+                                        ]
+                                    }
+                                } else {
+                                    vec![Action::PassTurn]
+                                },
                             )
                         })
                         .collect::<HashMap<_, _>>();
@@ -437,7 +563,12 @@ pub fn setup_phase_system(
                             .0,
                     );
 
-                    queue.push(single!(Action::Enable { clickables }));
+                    // Move the camera so we can see the board good
+                    queue.push_single(Action::add_lerp(
+                        cameras.iter().next().unwrap(),
+                        Lerp::move_camera(data.camera_nodes.board, 1.0),
+                    ));
+                    queue.push_single(Action::Enable { clickables });
                     queue.extend(if bg_pos < fr_pos {
                         faction_order[..bg_pos]
                             .iter()
@@ -474,11 +605,11 @@ pub fn setup_phase_system(
                 SetupSubPhase::PickTraitors => {
                     // TODO: Add traitor cards as clickables
                     todo!();
-                    queue.push(single!(Action::Enable { clickables: vec![] }));
-                    queue.push(single!(Action::ContextChange {
+                    queue.push_single(Action::Enable { clickables: vec![] });
+                    queue.push_single(Action::ContextChange {
                         context: Context::PickingTraitors,
-                    }));
-                    queue.push(single!(Action::PassTurn));
+                    });
+                    queue.push_single(Action::PassTurn);
                 }
                 SetupSubPhase::DealTreachery => {
                     for &entity in info.play_order.iter() {
@@ -529,11 +660,11 @@ pub fn storm_phase_system(
                     {
                         // TODO: Add weather control card as clickable
                         todo!();
-                        queue.push(single!(Action::Enable { clickables: vec![] }));
-                        queue.push(single!(Action::ContextChange {
+                        queue.push_single(Action::Enable { clickables: vec![] });
+                        queue.push_single(Action::ContextChange {
                             context: Context::Prompting,
-                        }));
-                        queue.push(single!(Action::PassTurn));
+                        });
+                        queue.push_single(Action::PassTurn);
                     }
                 }
                 StormSubPhase::FamilyAtomics => {
@@ -542,11 +673,11 @@ pub fn storm_phase_system(
                         .find(|(_, _, card)| card.name == "Family Atomics")
                     {
                         // TODO: Add family atomics as clickable
-                        queue.push(single!(Action::Enable { clickables: vec![] }));
-                        queue.push(single!(Action::ContextChange {
+                        queue.push_single(Action::Enable { clickables: vec![] });
+                        queue.push_single(Action::ContextChange {
                             context: Context::Prompting,
-                        }));
-                        queue.push(single!(Action::PassTurn));
+                        });
+                        queue.push_single(Action::PassTurn);
                     }
                 }
                 StormSubPhase::MoveStorm => {

@@ -8,10 +8,7 @@ use ncollide3d::{
     query::{Ray, RayCast},
 };
 
-use crate::{
-    components::{Collider, Player, Unique},
-    resources::Info,
-};
+use crate::components::Collider;
 
 pub fn screen_to_world(ss_pos: Vec3, transform: Transform, v: Mat4) -> Vec3 {
     let p = transform.compute_matrix() * v.inverse() * ss_pos.extend(1.0);
@@ -62,11 +59,17 @@ pub fn compute_click_ray(
     )
 }
 
+pub struct RayCastResult<'a, T: Component> {
+    pub intersection: Vec3,
+    pub entity: Entity,
+    pub component: &'a T,
+}
+
 pub fn closest<'a, T: Component>(
     windows: &Res<Windows>,
     cameras: &Query<(&Camera, &Transform)>,
     colliders: &'a Query<(Entity, &Collider, &Transform, &'a T)>,
-) -> Option<(Entity, &'a T)> {
+) -> Option<RayCastResult<'a, T>> {
     if let Some((camera, cam_transform)) = cameras.iter().next() {
         if let Some(window) = windows.get_primary() {
             if let Some(pos) = window.cursor_position() {
@@ -112,7 +115,88 @@ pub fn closest<'a, T: Component>(
                         }
                     }
                 }
-                return closest_t;
+                return if let (Some(toi), Some((entity, component))) = (closest_toi, closest_t) {
+                    let p = ray.point_at(toi);
+                    Some(RayCastResult {
+                        intersection: Vec3::new(p[0], p[1], p[2]),
+                        entity,
+                        component,
+                    })
+                } else {
+                    None
+                };
+            }
+        }
+    }
+    None
+}
+
+pub struct MutRayCastResult<'a, T: Component> {
+    pub intersection: Vec3,
+    pub entity: Entity,
+    pub component: Mut<'a, T>,
+}
+
+pub fn closest_mut<'a, 'b, T: Component>(
+    windows: &Res<Windows>,
+    cameras: &Query<(&Camera, &Transform)>,
+    colliders: &'a mut Query<(Entity, &Collider, &Transform, &'b mut T)>,
+) -> Option<MutRayCastResult<'a, T>> {
+    if let Some((camera, cam_transform)) = cameras.iter().next() {
+        if let Some(window) = windows.get_primary() {
+            if let Some(pos) = window.cursor_position() {
+                let ray = compute_click_ray(window, pos, camera, cam_transform);
+                let (mut closest_toi, mut closest_t) = (None, None);
+                for (entity, collider, transform, t) in
+                    colliders
+                        .iter_mut()
+                        .filter_map(|(entity, collider, transform, t)| {
+                            if collider.enabled {
+                                return Some((entity, collider, transform, t));
+                            }
+                            None
+                        })
+                {
+                    let (axis, angle) = transform.rotation.to_axis_angle();
+                    let angleaxis = axis * angle;
+                    if let Some(toi) = collider.shape.toi_with_ray(
+                        &Isometry3::from_parts(
+                            Translation3::new(
+                                transform.translation.x,
+                                transform.translation.y,
+                                transform.translation.z,
+                            ),
+                            UnitQuaternion::new(Vector3::new(
+                                angleaxis.x,
+                                angleaxis.y,
+                                angleaxis.z,
+                            )),
+                        ),
+                        &ray,
+                        100.0,
+                        true,
+                    ) {
+                        if closest_toi.is_none() {
+                            closest_toi = Some(toi);
+                            closest_t = Some((entity, t));
+                        } else {
+                            if toi < closest_toi.unwrap() {
+                                closest_toi = Some(toi);
+                                closest_t = Some((entity, t));
+                            }
+                        }
+                    }
+                }
+                return if let (Some(toi), Some((entity, component))) = (closest_toi, closest_t) {
+                    let p = ray.point_at(toi);
+                    Some(MutRayCastResult {
+                        intersection: Vec3::new(p[0], p[1], p[2]),
+                        entity,
+                        component,
+                    })
+                } else {
+                    None
+                };
             }
         }
     }

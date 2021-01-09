@@ -61,6 +61,11 @@ impl Info {
             context: Context::None,
         }
     }
+
+    pub fn get_active_player(&self) -> Entity {
+        self.active_player
+            .unwrap_or(self.play_order[self.current_turn])
+    }
 }
 
 pub struct Collections {

@@ -43,6 +43,15 @@ impl Lerp {
             delay,
         }
     }
+
+    pub fn move_camera(dest: CameraNode, time: f32) -> Self {
+        Lerp {
+            lerp_type: LerpType::Camera { src: None, dest },
+            time,
+            animation_time: time,
+            delay: 0.0,
+        }
+    }
 }
 
 struct UITransform {
@@ -53,7 +62,8 @@ pub struct LerpPlugin;
 
 impl Plugin for LerpPlugin {
     fn build(&self, app: &mut AppBuilder) {
-        app.add_system(lerp_system.system());
+        app.add_system(camera_system.system())
+            .add_system(lerp_system.system());
     }
 }
 
@@ -61,8 +71,11 @@ fn lerp_system(
     commands: &mut Commands,
     time: Res<Time>,
     cameras: Query<(&Transform, &Camera)>,
-    mut world_lerps: Query<(Entity, &mut Lerp, &mut Transform), Without<UITransform>>,
-    mut ui_lerps: Query<(Entity, &mut Lerp, &mut Transform, &mut UITransform)>,
+    mut world_lerps: Query<
+        (Entity, &mut Lerp, &mut Transform),
+        (Without<UITransform>, Without<Camera>),
+    >,
+    mut ui_lerps: Query<(Entity, &mut Lerp, &mut Transform, &mut UITransform), Without<Camera>>,
 ) {
     for (entity, mut lerp, mut transform) in world_lerps.iter_mut() {
         if lerp.delay > 0.0 {
@@ -141,33 +154,7 @@ fn lerp_system(
                         lerp.time -= time.delta_seconds();
                     }
                 }
-                LerpType::Camera { mut src, dest } => {
-                    if src.is_none() {
-                        src.replace(transform.clone());
-                    }
-                    if lerp.time <= 0.0 {
-                        *transform =
-                            Transform::from_translation(dest.pos).looking_at(dest.at, dest.up);
-
-                        commands.remove_one::<Lerp>(entity);
-                    } else {
-                        let dest_transform =
-                            Transform::from_translation(dest.pos).looking_at(dest.at, dest.up);
-                        let mut lerp_amount =
-                            PI * (lerp.animation_time - lerp.time) / lerp.animation_time;
-                        lerp_amount = -0.5 * lerp_amount.cos() + 0.5;
-                        transform.translation = src
-                            .unwrap()
-                            .translation
-                            .lerp(dest_transform.translation, lerp_amount);
-                        transform.rotation = src
-                            .unwrap()
-                            .rotation
-                            .lerp(dest_transform.rotation, lerp_amount);
-
-                        lerp.time -= time.delta_seconds();
-                    }
-                }
+                _ => (),
             }
         }
     }
@@ -267,6 +254,42 @@ fn lerp_system(
                     commands.remove_one::<UITransform>(entity);
                 }
             }
+        }
+    }
+}
+
+fn camera_system(
+    commands: &mut Commands,
+    time: Res<Time>,
+    mut cameras: Query<(Entity, &mut Lerp, &mut Transform), With<Camera>>,
+) {
+    for (entity, mut lerp, mut transform) in cameras.iter_mut() {
+        if let LerpType::Camera { mut src, dest } = lerp.lerp_type {
+            if src.is_none() {
+                src.replace(transform.clone());
+            }
+            if lerp.time <= 0.0 {
+                *transform = Transform::from_translation(dest.pos).looking_at(dest.at, dest.up);
+
+                commands.remove_one::<Lerp>(entity);
+            } else {
+                let dest_transform =
+                    Transform::from_translation(dest.pos).looking_at(dest.at, dest.up);
+                let mut lerp_amount = PI * (lerp.animation_time - lerp.time) / lerp.animation_time;
+                lerp_amount = -0.5 * lerp_amount.cos() + 0.5;
+                transform.translation = src
+                    .unwrap()
+                    .translation
+                    .lerp(dest_transform.translation, lerp_amount);
+                transform.rotation = src
+                    .unwrap()
+                    .rotation
+                    .lerp(dest_transform.rotation, lerp_amount);
+
+                lerp.time -= time.delta_seconds();
+            }
+        } else {
+            commands.remove_one::<Lerp>(entity);
         }
     }
 }
