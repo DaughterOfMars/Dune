@@ -71,6 +71,7 @@ impl Context {
     }
 }
 
+#[derive(Clone)]
 pub enum Action {
     Enable { clickables: Vec<Entity> },
     SetActivePlayer { player: Entity },
@@ -105,8 +106,8 @@ impl std::fmt::Display for Action {
 }
 
 pub struct ContextAction {
-    action: ActionAggregation,
-    context: Context,
+    pub action: ActionAggregation,
+    pub context: Context,
 }
 
 impl Into<ContextAction> for Action {
@@ -441,7 +442,7 @@ fn action_subsystem(
     }
 }
 
-fn public_troop_system(mut troops: Query<(&Troop, &mut Unique), Changed<Troop>>) {
+fn public_troop_system(mut troops: Query<(&Troop, &mut Unique)>) {
     for (troop, mut unique) in troops.iter_mut() {
         unique.public = troop.location.is_some();
     }
@@ -592,8 +593,9 @@ pub fn setup_phase_system(
                                                 .unwrap();
                                             let mut troop_stack = troops
                                                 .iter_mut()
-                                                .filter(|(_, _, unique, _)| {
+                                                .filter(|(_, troop, unique, _)| {
                                                     unique.faction == player.faction
+                                                        && troop.location.is_none()
                                                 })
                                                 .collect::<Vec<_>>();
                                             troop_stack.sort_by(
@@ -610,15 +612,18 @@ pub fn setup_phase_system(
                                                     troop_stack.get_mut(i as usize)
                                                 {
                                                     troop.location = Some(location);
+                                                    let node = loc_sec.location.sectors
+                                                        [&loc_sec.sector]
+                                                        .fighters[0];
                                                     Action::add_lerp(
                                                         *entity,
                                                         Lerp::new(
                                                             LerpType::World {
                                                                 src: None,
                                                                 dest: Transform::from_translation(
-                                                                    loc_sec.location.sectors
-                                                                        [&loc_sec.sector]
-                                                                        .fighters[0],
+                                                                    Vec3::new(
+                                                                        node.x, node.z, -node.y,
+                                                                    ),
                                                                 )
                                                                     * Transform::from_translation(
                                                                         i as f32
@@ -696,6 +701,7 @@ pub fn setup_phase_system(
                             .map(|action| action.into())
                             .collect::<Vec<_>>()
                     });
+                    queue.push_single(Action::AdvancePhase);
                 }
                 SetupSubPhase::DealTraitors => {
                     for _ in 0..4 {

@@ -4,9 +4,9 @@ use crate::{
     components::{Collider, LocationSector, Player, Prediction, Troop, Unique},
     data::{CameraNode, FactionPredictionCard, TurnPredictionCard},
     lerper::{Lerp, LerpType},
-    phase::{Action, ActionAggregation, ActionQueue, Context, ContextAction},
+    multi,
+    phase::{Action, ActionAggregation, ActionQueue, Context},
     resources::{Data, Info},
-    single,
     util::{closest, closest_mut, MutRayCastResult, RayCastResult},
 };
 
@@ -72,7 +72,7 @@ pub fn camera_system(
 }
 
 fn sector_context_system(
-    info: Res<Info>,
+    mut info: ResMut<Info>,
     mut queue: ResMut<ActionQueue>,
     windows: Res<Windows>,
     mouse_input: Res<Input<MouseButton>>,
@@ -120,9 +120,10 @@ fn sector_context_system(
                                 if place {
                                     let (lerp_entity, _, _, mut new_troop) = troops
                                         .iter_mut()
-                                        .filter(|(entity, _, _, _)| {
+                                        .filter(|(entity, _, _, troop)| {
                                             uniques.get(*entity).unwrap().faction
                                                 == active_player.faction
+                                                && troop.location.is_none()
                                         })
                                         .max_by(|(_, _, transform1, _), (_, _, transform2, _)| {
                                             transform1
@@ -165,24 +166,73 @@ fn sector_context_system(
                                             0.0,
                                         )
                                     };
-                                    if troops
+                                    let placed_troops = troops
                                         .iter_mut()
-                                        .filter(|(_, _, _, troop)| troop.location.is_some())
-                                        .count()
-                                        + 1
-                                        == num_troops as usize
-                                    {
-                                        queue.push_seq_front(vec![
-                                            info.context
-                                                .action(Action::add_lerp(lerp_entity, lerp)),
-                                            info.context
-                                                .action(Action::ContextChange(Context::None)),
-                                        ]);
+                                        .filter(|(entity, _, _, troop)| {
+                                            uniques.get(*entity).unwrap().faction
+                                                == active_player.faction
+                                                && troop.location.is_some()
+                                        })
+                                        .count();
+                                    println!(
+                                        "Total troops: {}, placed: {}",
+                                        num_troops, placed_troops
+                                    );
+                                    if placed_troops == num_troops as usize {
+                                        if let Some(mut context_action) = queue.pop() {
+                                            if context_action.context == info.context {
+                                                match context_action.action {
+                                                    ActionAggregation::Multiple(
+                                                        ref mut actions,
+                                                    ) => actions
+                                                        .push(Action::add_lerp(lerp_entity, lerp)),
+                                                    ActionAggregation::Single(ref action) => {
+                                                        context_action.action = multi![
+                                                            action.clone(),
+                                                            Action::add_lerp(lerp_entity, lerp)
+                                                        ]
+                                                    }
+                                                };
+                                                context_action.context = Context::None;
+                                                queue.push_front(context_action)
+                                            } else {
+                                                queue.push_seq_front(vec![
+                                                    Action::add_lerp(lerp_entity, lerp).into(),
+                                                    context_action,
+                                                ])
+                                            }
+                                        } else {
+                                            queue.push_front(
+                                                info.context
+                                                    .action(Action::add_lerp(lerp_entity, lerp)),
+                                            )
+                                        }
+                                        info.context = Context::None;
                                     } else {
-                                        queue.push_front(
-                                            info.context
-                                                .action(Action::add_lerp(lerp_entity, lerp)),
-                                        );
+                                        if let Some(context_action) = queue.peek_mut() {
+                                            if context_action.context == info.context {
+                                                match context_action.action {
+                                                    ActionAggregation::Multiple(
+                                                        ref mut actions,
+                                                    ) => actions
+                                                        .push(Action::add_lerp(lerp_entity, lerp)),
+                                                    ActionAggregation::Single(ref action) => {
+                                                        context_action.action = multi![
+                                                            action.clone(),
+                                                            Action::add_lerp(lerp_entity, lerp)
+                                                        ]
+                                                    }
+                                                };
+                                            } else {
+                                                queue.push_front(info.context.actions(vec![
+                                                    Action::add_lerp(lerp_entity, lerp),
+                                                ]));
+                                            }
+                                        } else {
+                                            queue.push_front(info.context.actions(vec![
+                                                Action::add_lerp(lerp_entity, lerp),
+                                            ]));
+                                        }
                                     }
                                 } else {
                                     println!("Tried to place troop in an invalid location!");

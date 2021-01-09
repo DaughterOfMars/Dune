@@ -4,6 +4,7 @@ use bevy::{prelude::*, render::camera::Camera};
 
 use crate::{data::CameraNode, util::screen_to_world};
 
+#[derive(Copy, Clone)]
 pub enum LerpType {
     UI {
         src: Option<Vec2>,
@@ -27,6 +28,7 @@ pub enum LerpType {
     },
 }
 
+#[derive(Copy, Clone)]
 pub struct Lerp {
     lerp_type: LerpType,
     pub time: f32,
