@@ -1,10 +1,13 @@
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    ops::DerefMut,
+};
 
 use crate::{
-    components::{Collider, Troop},
+    components::{Collider, Disorganized, Troop},
     data::TurnPredictionCard,
     lerper::{Lerp, LerpType},
-    resources::Collections,
+    util::shuffle_deck,
 };
 use bevy::{prelude::*, render::camera::Camera};
 use rand::{prelude::SliceRandom, Rng};
@@ -40,6 +43,7 @@ impl Plugin for PhasePlugin {
             .add_system_to_stage(STAGE, action_system.system())
             .add_system_to_stage(STAGE, public_troop_system.system())
             .add_system_to_stage(STAGE, active_player_system.system())
+            .add_system_to_stage(STAGE, stack_troops_system.system())
             .add_system_to_stage(STAGE, setup_phase_system.system())
             .add_system_to_stage(STAGE, storm_phase_system.system());
     }
@@ -268,9 +272,9 @@ pub fn action_system(
     mut info: ResMut<Info>,
     mut state: ResMut<State>,
     mut queue: ResMut<ActionQueue>,
-    mut queries: QuerySet<(Query<&Lerp>, Query<&Player>, Query<&mut Collider>)>,
+    mut queries: QuerySet<(Query<&mut Lerp>, Query<&Player>, Query<&mut Collider>)>,
 ) {
-    //println!("Context: {:?}, Queue: {}", info.context, queue.to_string());
+    println!("Context: {:?}, Queue: {}", info.context, queue.to_string());
     //println!(
     //    "Active player: {:?}",
     //    queries.q1().get(info.get_active_player()).unwrap().faction
@@ -343,7 +347,7 @@ fn action_subsystem(
     time: &Res<Time>,
     info: &mut ResMut<Info>,
     state: &mut ResMut<State>,
-    queries: &mut QuerySet<(Query<&Lerp>, Query<&Player>, Query<&mut Collider>)>,
+    queries: &mut QuerySet<(Query<&mut Lerp>, Query<&Player>, Query<&mut Collider>)>,
 ) -> ActionResult {
     match action {
         Action::Enable { clickables } => {
@@ -409,19 +413,29 @@ fn action_subsystem(
             state.phase.advance();
             ActionResult::Remove
         }
-        Action::Lerp { element, lerp } => {
-            if let Some(lerp) = lerp.take() {
-                //println!("Starting lerp: {}", lerp.time);
-                commands.insert_one(*element, lerp);
-                return ActionResult::None;
-            }
-            if let Ok(lerp) = queries.q0().get(*element) {
-                if lerp.time <= 0.0 {
-                    //println!("Lerp Complete");
-                    return ActionResult::Remove;
+        Action::Lerp {
+            element,
+            lerp: new_lerp,
+        } => {
+            if let Ok(mut old_lerp) = queries.q0_mut().get_mut(*element) {
+                if old_lerp.time <= 0.0 {
+                    if let Some(lerp) = new_lerp.take() {
+                        *old_lerp = lerp;
+                        ActionResult::None
+                    } else {
+                        ActionResult::Remove
+                    }
+                } else {
+                    ActionResult::None
+                }
+            } else {
+                if let Some(lerp) = new_lerp.take() {
+                    commands.insert_one(*element, lerp);
+                    ActionResult::None
+                } else {
+                    ActionResult::Remove
                 }
             }
-            ActionResult::None
         }
         Action::ContextChange(context) => {
             info.context = *context;
@@ -439,6 +453,55 @@ fn action_subsystem(
             info.active_player = Some(*player);
             ActionResult::Remove
         }
+    }
+}
+
+fn stack_troops_system(
+    commands: &mut Commands,
+    mut queue: ResMut<ActionQueue>,
+    troops: Query<(Entity, &Unique, &Troop)>,
+    locations: Query<(Entity, &LocationSector), With<Disorganized>>,
+) {
+    for (loc_entity, loc_sec) in locations.iter() {
+        let mut map = HashMap::new();
+        for (entity, faction) in troops.iter().filter_map(|(entity, unique, troop)| {
+            troop.location.and_then(|location| {
+                if location == loc_entity {
+                    Some((entity, unique.faction))
+                } else {
+                    None
+                }
+            })
+        }) {
+            map.entry(faction).or_insert(Vec::new()).push(entity);
+        }
+        for (node_ind, troops) in map.values().enumerate() {
+            let node = loc_sec.location.sectors[&loc_sec.sector].fighters[node_ind];
+            queue.push_multiple_front(
+                troops
+                    .iter()
+                    .enumerate()
+                    .map(|(i, entity)| {
+                        Action::add_lerp(
+                            *entity,
+                            Lerp::new(
+                                LerpType::World {
+                                    src: None,
+                                    dest: Transform::from_translation(Vec3::new(
+                                        node.x, node.z, -node.y,
+                                    )) * Transform::from_translation(
+                                        i as f32 * 0.0018 * Vec3::unit_y(),
+                                    ),
+                                },
+                                0.1,
+                                0.0,
+                            ),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            );
+        }
+        commands.remove_one::<Disorganized>(loc_entity);
     }
 }
 
@@ -469,7 +532,6 @@ pub fn setup_phase_system(
     mut state: ResMut<State>,
     mut info: ResMut<Info>,
     data: Res<Data>,
-    mut collections: ResMut<Collections>,
     mut players: Query<(Entity, &mut Player)>,
     mut treachery_cards: Query<(Entity, &mut Transform, &TreacheryCard)>,
     mut traitor_cards: Query<(Entity, &mut Transform, &Leader)>,
@@ -487,6 +549,23 @@ pub fn setup_phase_system(
         if let Phase::Setup { ref mut subphase } = state.phase {
             match subphase {
                 SetupSubPhase::ChooseFactions => {
+                    let mut rng = rand::thread_rng();
+                    shuffle_deck(
+                        &mut rng,
+                        0.001,
+                        &mut treachery_cards
+                            .iter_mut()
+                            .map(|(entity, transform, _)| (entity, transform))
+                            .collect(),
+                    );
+                    shuffle_deck(
+                        &mut rng,
+                        0.001,
+                        &mut traitor_cards
+                            .iter_mut()
+                            .map(|(entity, transform, _)| (entity, transform))
+                            .collect(),
+                    );
                     // skip for now
                     state.phase.advance();
                 }
@@ -701,15 +780,29 @@ pub fn setup_phase_system(
                             .map(|action| action.into())
                             .collect::<Vec<_>>()
                     });
+                    queue.push_single(Action::add_lerp(
+                        cameras.iter().next().unwrap(),
+                        Lerp::move_camera(data.camera_nodes.main, 1.0),
+                    ));
                     queue.push_single(Action::AdvancePhase);
                 }
                 SetupSubPhase::DealTraitors => {
+                    let mut cards = traitor_cards
+                        .iter_mut()
+                        .map(|(entity, transform, _)| (entity, transform))
+                        .collect::<Vec<_>>();
+                    cards.sort_by(|(_, transform1), (_, transform2)| {
+                        transform1
+                            .translation
+                            .y
+                            .partial_cmp(&transform2.translation.y)
+                            .unwrap()
+                    });
                     for _ in 0..4 {
                         for &entity in info.play_order.iter() {
                             if let Ok((_, mut player)) = players.get_mut(entity) {
-                                player
-                                    .traitor_cards
-                                    .push(collections.traitor_deck.pop().unwrap());
+                                let card = cards.pop().unwrap().0;
+                                player.traitor_cards.push(card);
                             }
                         }
                     }
@@ -724,6 +817,7 @@ pub fn setup_phase_system(
                     queue.push_single(Action::PassTurn);
                 }
                 SetupSubPhase::DealTreachery => {
+                    /*
                     for &entity in info.play_order.iter() {
                         if let Ok((_, mut player)) = players.get_mut(entity) {
                             player
@@ -739,6 +833,7 @@ pub fn setup_phase_system(
                     state.phase = Phase::Storm {
                         subphase: StormSubPhase::Reveal,
                     };
+                    */
                 }
             }
         }
@@ -749,7 +844,6 @@ pub fn storm_phase_system(
     mut queue: ResMut<ActionQueue>,
     mut state: ResMut<State>,
     mut info: ResMut<Info>,
-    mut collections: ResMut<Collections>,
     mut treachery_cards: Query<(Entity, &mut Transform, &TreacheryCard)>,
     mut storm_query: Query<&mut Storm>,
     storm_cards: Query<&StormCard>,
@@ -789,6 +883,7 @@ pub fn storm_phase_system(
                     }
                 }
                 StormSubPhase::MoveStorm => {
+                    /*
                     let mut rng = rand::thread_rng();
                     if info.turn == 0 {
                         for mut storm in storm_query.iter_mut() {
@@ -806,6 +901,7 @@ pub fn storm_phase_system(
                         // TODO: Choose a first player
                         // TODO: Assign bonuses
                     }
+                    */
                 }
             }
         }

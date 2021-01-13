@@ -1,6 +1,6 @@
 use std::fs::File;
 
-use bevy::ecs::Entity;
+use bevy::{ecs::Entity, math::Vec2};
 
 use crate::{data::*, phase::Context};
 
@@ -11,6 +11,7 @@ pub struct Data {
     pub spice_cards: Vec<SpiceCard>,
     pub camera_nodes: CameraNodes,
     pub prediction_nodes: PredictionNodes,
+    pub traitor_nodes: Vec<Vec2>,
     pub token_nodes: TokenNodes,
 }
 
@@ -25,6 +26,8 @@ impl Data {
             ron::de::from_reader(File::open("data/camera_nodes.ron").unwrap()).unwrap();
         let prediction_nodes =
             ron::de::from_reader(File::open("data/prediction_nodes.ron").unwrap()).unwrap();
+        let traitor_nodes =
+            ron::de::from_reader(File::open("data/traitor_nodes.ron").unwrap()).unwrap();
         let token_nodes =
             ron::de::from_reader(File::open("data/token_nodes.ron").unwrap()).unwrap();
         Data {
@@ -34,6 +37,7 @@ impl Data {
             spice_cards,
             camera_nodes,
             prediction_nodes,
+            traitor_nodes,
             token_nodes,
         }
     }
@@ -65,31 +69,5 @@ impl Info {
     pub fn get_active_player(&self) -> Entity {
         self.active_player
             .unwrap_or(self.play_order[self.current_turn])
-    }
-}
-
-pub struct Collections {
-    pub spice_bank: Vec<Entity>,
-    pub treachery_deck: Vec<Entity>,
-    pub treachery_discard: Vec<Entity>,
-    pub traitor_deck: Vec<Entity>,
-    pub traitor_discard: Vec<Entity>,
-    pub spice_deck: Vec<Entity>,
-    pub spice_discard: Vec<Entity>,
-    pub storm_deck: Vec<Entity>,
-}
-
-impl Default for Collections {
-    fn default() -> Self {
-        Self {
-            spice_bank: Vec::new(),
-            treachery_deck: Vec::new(),
-            treachery_discard: Vec::new(),
-            traitor_deck: Vec::new(),
-            traitor_discard: Vec::new(),
-            spice_deck: Vec::new(),
-            spice_discard: Vec::new(),
-            storm_deck: Vec::new(),
-        }
     }
 }

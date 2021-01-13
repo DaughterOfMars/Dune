@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bevy::math::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash)]
 pub enum Faction {
     Atreides,
     Harkonnen,

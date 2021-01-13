@@ -1,7 +1,7 @@
 use bevy::{prelude::*, render::camera::Camera};
 
 use crate::{
-    components::{Collider, LocationSector, Player, Prediction, Troop, Unique},
+    components::{Collider, Disorganized, LocationSector, Player, Prediction, Troop, Unique},
     data::{CameraNode, FactionPredictionCard, TurnPredictionCard},
     lerper::{Lerp, LerpType},
     multi,
@@ -72,6 +72,7 @@ pub fn camera_system(
 }
 
 fn sector_context_system(
+    commands: &mut Commands,
     mut info: ResMut<Info>,
     mut queue: ResMut<ActionQueue>,
     windows: Res<Windows>,
@@ -208,6 +209,9 @@ fn sector_context_system(
                                             )
                                         }
                                         info.context = Context::None;
+                                        for (e, _, _, _) in colliders.iter() {
+                                            commands.insert_one(e, Disorganized);
+                                        }
                                     } else {
                                         if let Some(context_action) = queue.peek_mut() {
                                             if context_action.context == info.context {

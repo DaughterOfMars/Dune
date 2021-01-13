@@ -31,6 +31,8 @@ pub struct LocationSector {
     pub sector: i32,
 }
 
+pub struct Disorganized;
+
 #[derive(Copy, Clone, Debug, Default)]
 pub struct SpiceNode {
     pub pos: Vec3,

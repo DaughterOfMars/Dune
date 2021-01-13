@@ -34,7 +34,6 @@ fn main() {
         .add_resource(ClearColor(Color::BLACK))
         .add_resource(Data::init())
         .add_resource(Info::new())
-        .add_resource(Collections::default())
         .add_resource(crate::phase::State::default())
         .add_plugins(DefaultPlugins)
         .add_plugin(InputPlugin)
@@ -50,7 +49,6 @@ fn init(
     commands: &mut Commands,
     data: Res<Data>,
     mut info: ResMut<Info>,
-    mut collections: ResMut<Collections>,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -365,7 +363,7 @@ fn init(
         })
         .collect();
 
-    //info.play_order.shuffle(&mut rng);
+    info.play_order.shuffle(&mut rng);
 
     (1..=15).for_each(|turn| {
         let prediction_front_texture =
@@ -405,45 +403,34 @@ fn init(
         ..Default::default()
     });
 
-    collections.treachery_deck = data
-        .treachery_cards
-        .iter()
-        .enumerate()
-        .map(|(i, card)| {
-            let treachery_front_texture = asset_server
-                .get_handle(format!("treachery/treachery_{}.png", card.texture.as_str()).as_str());
-            let treachery_front_material = materials.add(StandardMaterial {
-                albedo_texture: Some(treachery_front_texture),
-                ..Default::default()
-            });
+    for (i, card) in data.treachery_cards.iter().enumerate() {
+        let treachery_front_texture = asset_server
+            .get_handle(format!("treachery/treachery_{}.png", card.texture.as_str()).as_str());
+        let treachery_front_material = materials.add(StandardMaterial {
+            albedo_texture: Some(treachery_front_texture),
+            ..Default::default()
+        });
 
-            commands
-                .spawn((
-                    card.clone(),
-                    Transform::from_translation(Vec3::new(
-                        1.23,
-                        0.0049 + (i as f32 * 0.001),
-                        -0.87,
-                    )) * Transform::from_rotation(Quat::from_rotation_z(PI)),
-                    GlobalTransform::default(),
-                ))
-                .with_children(|parent| {
-                    parent.spawn(PbrBundle {
-                        mesh: card_face.clone(),
-                        material: treachery_front_material,
-                        ..Default::default()
-                    });
-                    parent.spawn(PbrBundle {
-                        mesh: card_back.clone(),
-                        material: treachery_back_material.clone(),
-                        ..Default::default()
-                    });
-                })
-                .current_entity()
-                .unwrap()
-        })
-        .collect();
-    collections.treachery_deck.shuffle(&mut rng);
+        commands
+            .spawn((
+                card.clone(),
+                Transform::from_translation(Vec3::new(1.23, 0.0049 + (i as f32 * 0.001), -0.87))
+                    * Transform::from_rotation(Quat::from_rotation_z(PI)),
+                GlobalTransform::default(),
+            ))
+            .with_children(|parent| {
+                parent.spawn(PbrBundle {
+                    mesh: card_face.clone(),
+                    material: treachery_front_material,
+                    ..Default::default()
+                });
+                parent.spawn(PbrBundle {
+                    mesh: card_back.clone(),
+                    material: treachery_back_material.clone(),
+                    ..Default::default()
+                });
+            });
+    }
 
     let traitor_back_texture = asset_server.get_handle("traitor/traitor_back.png");
     let traitor_back_material = materials.add(StandardMaterial {
@@ -451,44 +438,36 @@ fn init(
         ..Default::default()
     });
 
-    collections.traitor_deck = data
-        .leaders
-        .iter()
-        .enumerate()
-        .map(|(i, card)| {
-            let traitor_front_texture = asset_server
-                .get_handle(format!("traitor/traitor_{}.png", card.texture.as_str()).as_str());
-            let traitor_front_material = materials.add(StandardMaterial {
-                albedo_texture: Some(traitor_front_texture),
-                ..Default::default()
-            });
+    for (i, card) in data.leaders.iter().enumerate() {
+        let traitor_front_texture = asset_server
+            .get_handle(format!("traitor/traitor_{}.png", card.texture.as_str()).as_str());
+        let traitor_front_material = materials.add(StandardMaterial {
+            albedo_texture: Some(traitor_front_texture),
+            ..Default::default()
+        });
 
-            commands
-                .spawn((
-                    TraitorCard {
-                        leader: card.clone(),
-                    },
-                    Transform::from_translation(Vec3::new(1.23, 0.0049 + (i as f32 * 0.001), -0.3))
-                        * Transform::from_rotation(Quat::from_rotation_z(PI)),
-                    GlobalTransform::default(),
-                ))
-                .with_children(|parent| {
-                    parent.spawn(PbrBundle {
-                        mesh: card_face.clone(),
-                        material: traitor_front_material,
-                        ..Default::default()
-                    });
-                    parent.spawn(PbrBundle {
-                        mesh: card_back.clone(),
-                        material: traitor_back_material.clone(),
-                        ..Default::default()
-                    });
-                })
-                .current_entity()
-                .unwrap()
-        })
-        .collect();
-    collections.traitor_deck.shuffle(&mut rng);
+        commands
+            .spawn((
+                TraitorCard {
+                    leader: card.clone(),
+                },
+                Transform::from_translation(Vec3::new(1.23, 0.0049 + (i as f32 * 0.001), -0.3))
+                    * Transform::from_rotation(Quat::from_rotation_z(PI)),
+                GlobalTransform::default(),
+            ))
+            .with_children(|parent| {
+                parent.spawn(PbrBundle {
+                    mesh: card_face.clone(),
+                    material: traitor_front_material,
+                    ..Default::default()
+                });
+                parent.spawn(PbrBundle {
+                    mesh: card_back.clone(),
+                    material: traitor_back_material.clone(),
+                    ..Default::default()
+                });
+            });
+    }
 
     let spice_back_texture = asset_server.get_handle("spice/spice_back.png");
     let spice_back_material = materials.add(StandardMaterial {
@@ -496,42 +475,34 @@ fn init(
         ..Default::default()
     });
 
-    collections.spice_deck = data
-        .spice_cards
-        .iter()
-        .enumerate()
-        .map(|(i, card)| {
-            let spice_front_texture = asset_server
-                .get_handle(format!("spice/spice_{}.png", card.texture.as_str()).as_str());
-            let spice_front_material = materials.add(StandardMaterial {
-                albedo_texture: Some(spice_front_texture),
-                ..Default::default()
-            });
+    for (i, card) in data.spice_cards.iter().enumerate() {
+        let spice_front_texture =
+            asset_server.get_handle(format!("spice/spice_{}.png", card.texture.as_str()).as_str());
+        let spice_front_material = materials.add(StandardMaterial {
+            albedo_texture: Some(spice_front_texture),
+            ..Default::default()
+        });
 
-            commands
-                .spawn((
-                    card.clone(),
-                    Transform::from_translation(Vec3::new(1.23, 0.0049 + (i as f32 * 0.001), 0.3))
-                        * Transform::from_rotation(Quat::from_rotation_z(PI)),
-                    GlobalTransform::default(),
-                ))
-                .with_children(|parent| {
-                    parent.spawn(PbrBundle {
-                        mesh: card_face.clone(),
-                        material: spice_front_material,
-                        ..Default::default()
-                    });
-                    parent.spawn(PbrBundle {
-                        mesh: card_back.clone(),
-                        material: spice_back_material.clone(),
-                        ..Default::default()
-                    });
-                })
-                .current_entity()
-                .unwrap()
-        })
-        .collect();
-    collections.spice_deck.shuffle(&mut rng);
+        commands
+            .spawn((
+                card.clone(),
+                Transform::from_translation(Vec3::new(1.23, 0.0049 + (i as f32 * 0.001), 0.3))
+                    * Transform::from_rotation(Quat::from_rotation_z(PI)),
+                GlobalTransform::default(),
+            ))
+            .with_children(|parent| {
+                parent.spawn(PbrBundle {
+                    mesh: card_face.clone(),
+                    material: spice_front_material,
+                    ..Default::default()
+                });
+                parent.spawn(PbrBundle {
+                    mesh: card_back.clone(),
+                    material: spice_back_material.clone(),
+                    ..Default::default()
+                });
+            });
+    }
 
     let storm_back_texture = asset_server.get_handle("storm/storm_back.png");
     let storm_back_material = materials.add(StandardMaterial {
@@ -539,42 +510,34 @@ fn init(
         ..Default::default()
     });
 
-    collections.storm_deck = (1..7)
-        .map(|val| {
-            let storm_front_texture =
-                asset_server.get_handle(format!("storm/storm_{}.png", val).as_str());
-            let storm_front_material = materials.add(StandardMaterial {
-                albedo_texture: Some(storm_front_texture),
-                ..Default::default()
-            });
+    for val in 1..7 {
+        let storm_front_texture =
+            asset_server.get_handle(format!("storm/storm_{}.png", val).as_str());
+        let storm_front_material = materials.add(StandardMaterial {
+            albedo_texture: Some(storm_front_texture),
+            ..Default::default()
+        });
 
-            commands
-                .spawn((
-                    StormCard { val },
-                    Transform::from_translation(Vec3::new(
-                        1.23,
-                        0.0049 + (val as f32 * 0.001),
-                        0.87,
-                    )) * Transform::from_rotation(Quat::from_rotation_z(PI)),
-                    GlobalTransform::default(),
-                ))
-                .with_children(|parent| {
-                    parent.spawn(PbrBundle {
-                        mesh: card_face.clone(),
-                        material: storm_front_material,
-                        ..Default::default()
-                    });
-                    parent.spawn(PbrBundle {
-                        mesh: card_back.clone(),
-                        material: storm_back_material.clone(),
-                        ..Default::default()
-                    });
-                })
-                .current_entity()
-                .unwrap()
-        })
-        .collect();
-    collections.storm_deck.shuffle(&mut rng);
+        commands
+            .spawn((
+                StormCard { val },
+                Transform::from_translation(Vec3::new(1.23, 0.0049 + (val as f32 * 0.001), 0.87))
+                    * Transform::from_rotation(Quat::from_rotation_z(PI)),
+                GlobalTransform::default(),
+            ))
+            .with_children(|parent| {
+                parent.spawn(PbrBundle {
+                    mesh: card_face.clone(),
+                    material: storm_front_material,
+                    ..Default::default()
+                });
+                parent.spawn(PbrBundle {
+                    mesh: card_back.clone(),
+                    material: storm_back_material.clone(),
+                    ..Default::default()
+                });
+            });
+    }
 
     let deck_shape = ShapeHandle::new(Cuboid::new(Vector3::new(0.125, 0.03, 0.18)));
 

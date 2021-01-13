@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use bevy::{
     math::{Mat4, Vec3, Vec4Swizzles},
     prelude::*,
@@ -7,6 +9,7 @@ use ncollide3d::{
     na::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3},
     query::{Ray, RayCast},
 };
+use rand::{prelude::SliceRandom, Rng};
 
 use crate::components::Collider;
 
@@ -201,4 +204,26 @@ pub fn closest_mut<'a, 'b, T: Component>(
         }
     }
     None
+}
+
+pub fn shuffle_deck<R>(rng: &mut R, offset: f32, entities: &mut HashMap<Entity, Mut<Transform>>)
+where
+    R: Rng + ?Sized,
+{
+    let start = entities
+        .values()
+        .min_by(|transform1, transform2| {
+            transform1
+                .translation
+                .y
+                .partial_cmp(&transform2.translation.y)
+                .unwrap()
+        })
+        .unwrap()
+        .translation;
+    let mut order = entities.keys().cloned().collect::<Vec<_>>();
+    order.shuffle(rng);
+    for entity in order {
+        entities.get_mut(&entity).unwrap().translation = start + (offset * Vec3::unit_y());
+    }
 }
