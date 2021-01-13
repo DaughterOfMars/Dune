@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     components::{Collider, Disorganized, Troop},
-    data::TurnPredictionCard,
+    data::{TraitorCard, TurnPredictionCard},
     lerper::{Lerp, LerpType},
     util::shuffle_deck,
 };
@@ -534,7 +534,7 @@ pub fn setup_phase_system(
     data: Res<Data>,
     mut players: Query<(Entity, &mut Player)>,
     mut treachery_cards: Query<(Entity, &mut Transform, &TreacheryCard)>,
-    mut traitor_cards: Query<(Entity, &mut Transform, &Leader)>,
+    mut traitor_cards: Query<(Entity, &mut Transform, &TraitorCard)>,
     prediction_cards: QuerySet<(
         Query<(Entity, &FactionPredictionCard)>,
         Query<(Entity, &TurnPredictionCard)>,
