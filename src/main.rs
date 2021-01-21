@@ -12,7 +12,7 @@ use components::*;
 use data::*;
 use input::InputPlugin;
 use lerper::LerpPlugin;
-use phase::PhasePlugin;
+use phase::{PhasePlugin, PhaseText};
 use resources::*;
 use util::divide_spice;
 
@@ -67,6 +67,31 @@ fn init(
             .unwrap(),
     );
 
+    commands
+        .spawn(TextBundle {
+            style: Style {
+                position_type: PositionType::Absolute,
+                position: Rect {
+                    top: Val::Px(5.0),
+                    left: Val::Px(5.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            text: Text {
+                font: asset_server.get_handle("fonts/FiraSans-Bold.ttf"),
+                value: "Test".to_string(),
+                style: TextStyle {
+                    font_size: 40.0,
+                    color: Color::ANTIQUE_WHITE,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .with(PhaseText);
+
     for location in data.locations.iter() {
         commands.spawn((location.clone(),)).with_children(|parent| {
             for (&sector, nodes) in location.sectors.iter() {
@@ -99,17 +124,19 @@ fn init(
     }
 
     //Camera
-    commands.spawn(Camera3dBundle {
-        perspective_projection: PerspectiveProjection {
-            near: 0.01,
-            far: 100.0,
+    commands
+        .spawn(Camera3dBundle {
+            perspective_projection: PerspectiveProjection {
+                near: 0.01,
+                far: 100.0,
+                ..Default::default()
+            },
+            transform: Transform::from_translation(Vec3::new(0.0, 2.5, 2.0))
+                .looking_at(Vec3::zero(), Vec3::unit_y())
+                * Transform::from_translation(Vec3::new(0.0, -0.4, 0.0)),
             ..Default::default()
-        },
-        transform: Transform::from_translation(Vec3::new(0.0, 2.5, 2.0))
-            .looking_at(Vec3::zero(), Vec3::unit_y())
-            * Transform::from_translation(Vec3::new(0.0, -0.4, 0.0)),
-        ..Default::default()
-    });
+        })
+        .spawn(CameraUiBundle::default());
 
     // Light
     commands

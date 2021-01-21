@@ -41,6 +41,7 @@ impl Plugin for PhasePlugin {
         app.add_resource(ActionQueue::default())
             .add_stage(STAGE, SystemStage::parallel())
             .add_system_to_stage(STAGE, action_system.system())
+            .add_system_to_stage(STAGE, phase_text_system.system())
             .add_system_to_stage(STAGE, public_troop_system.system())
             .add_system_to_stage(STAGE, active_player_system.system())
             .add_system_to_stage(STAGE, stack_troops_system.system())
@@ -48,6 +49,8 @@ impl Plugin for PhasePlugin {
             .add_system_to_stage(STAGE, storm_phase_system.system());
     }
 }
+
+pub struct PhaseText;
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
 pub enum Context {
@@ -274,7 +277,7 @@ pub fn action_system(
     mut queue: ResMut<ActionQueue>,
     mut queries: QuerySet<(Query<&mut Lerp>, Query<&Player>, Query<&mut Collider>)>,
 ) {
-    println!("Context: {:?}, Queue: {}", info.context, queue.to_string());
+    //println!("Context: {:?}, Queue: {}", info.context, queue.to_string());
     //println!(
     //    "Active player: {:?}",
     //    queries.q1().get(info.get_active_player()).unwrap().faction
@@ -527,7 +530,40 @@ fn active_player_system(
     }
 }
 
-pub fn setup_phase_system(
+fn phase_text_system(
+    state: Res<State>,
+    info: Res<Info>,
+    players: Query<&Player>,
+    mut text: Query<&mut Text, With<PhaseText>>,
+) {
+    let active_faction = players.get(info.get_active_player()).unwrap().faction;
+    let s = match state.phase {
+        Phase::Setup { subphase } => match subphase {
+            SetupSubPhase::ChooseFactions => "Choosing Factions...".to_string(),
+            SetupSubPhase::Prediction => "Bene Gesserit are making a prediction...".to_string(),
+            SetupSubPhase::AtStart => format!("{:?} Initial Placement...", active_faction),
+            SetupSubPhase::DealTraitors => "Dealing Traitor Cards...".to_string(),
+            SetupSubPhase::PickTraitors => "Picking Traitors...".to_string(),
+            SetupSubPhase::DealTreachery => "Dealing Treachery Cards...".to_string(),
+        },
+        Phase::Storm { subphase: _ } => "Storm Phase".to_string(),
+        Phase::SpiceBlow => "Spice Blow Phase".to_string(),
+        Phase::Nexus => "Nexus Phase".to_string(),
+        Phase::Bidding => "Bidding Phase".to_string(),
+        Phase::Revival => "Revival Phase".to_string(),
+        Phase::Movement => "Movement Phase".to_string(),
+        Phase::Battle => "Battle Phase".to_string(),
+        Phase::Collection => "Collection Phase".to_string(),
+        Phase::Control => "Control Phase".to_string(),
+        Phase::EndGame => "".to_string(),
+    };
+
+    if let Some(mut text) = text.iter_mut().next() {
+        text.value = s;
+    }
+}
+
+fn setup_phase_system(
     mut queue: ResMut<ActionQueue>,
     mut state: ResMut<State>,
     mut info: ResMut<Info>,
@@ -840,7 +876,7 @@ pub fn setup_phase_system(
     }
 }
 
-pub fn storm_phase_system(
+fn storm_phase_system(
     mut queue: ResMut<ActionQueue>,
     mut state: ResMut<State>,
     mut info: ResMut<Info>,
