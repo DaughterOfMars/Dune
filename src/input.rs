@@ -1,9 +1,14 @@
-use bevy::{prelude::*, render::camera::Camera};
+use std::f32::consts::PI;
+
+use bevy::{
+    prelude::*,
+    render::camera::{Camera, OrthographicProjection},
+};
 
 use crate::{
     components::{Collider, Disorganized, LocationSector, Player, Prediction, Troop, Unique},
     data::{CameraNode, FactionPredictionCard, TurnPredictionCard},
-    lerper::{Lerp, LerpType},
+    lerper::{Lerp, LerpType, UITransform},
     multi,
     phase::{Action, ActionAggregation, ActionQueue, Context},
     resources::{Data, Info},
@@ -29,8 +34,8 @@ pub fn camera_system(
     windows: Res<Windows>,
     mouse_input: Res<Input<MouseButton>>,
     keyboard_input: Res<Input<KeyCode>>,
-    cameras: Query<(&Camera, &Transform)>,
-    camera: Query<Entity, (With<Camera>, Without<Lerp>)>,
+    cameras: Query<(&Camera, &Transform), Without<OrthographicProjection>>,
+    camera: Query<Entity, (With<Camera>, Without<Lerp>, Without<OrthographicProjection>)>,
     colliders: Query<(Entity, &Collider, &Transform, &CameraNode)>,
 ) {
     if mouse_input.just_pressed(MouseButton::Left) {
@@ -77,7 +82,7 @@ fn sector_context_system(
     mut queue: ResMut<ActionQueue>,
     windows: Res<Windows>,
     mouse_input: Res<Input<MouseButton>>,
-    cameras: Query<(&Camera, &Transform)>,
+    cameras: Query<(&Camera, &Transform), Without<OrthographicProjection>>,
     colliders: Query<(Entity, &Collider, &Transform, &LocationSector)>,
     players: Query<&Player>,
     mut troops: Query<(Entity, &Collider, &Transform, &mut Troop)>,
@@ -92,19 +97,19 @@ fn sector_context_system(
                     component: location_sector,
                 }) = closest(&windows, &cameras, &colliders)
                 {
-                    println!(
-                        "Clicked on {}-{}",
-                        location_sector.location.name, location_sector.sector
-                    );
+                    //println!(
+                    //    "Clicked on {}-{}",
+                    //    location_sector.location.name, location_sector.sector
+                    //);
                     match info.context {
                         Context::PlacingTroops => {
                             if let Ok(active_player) = players.get(info.get_active_player()) {
-                                println!("Active player: {:?}", active_player.faction);
+                                //println!("Active player: {:?}", active_player.faction);
                                 let (num_troops, locations, _) =
                                     active_player.faction.initial_values();
 
                                 let mut place = false;
-                                println!("Valid Locations: {:?}", locations);
+                                //println!("Valid Locations: {:?}", locations);
                                 if let Some(locations) = locations {
                                     if locations
                                         .iter()
@@ -144,26 +149,24 @@ fn sector_context_system(
                                         let troop_transform =
                                             troops.get_component::<Transform>(entity).unwrap();
                                         Lerp::new(
-                                            LerpType::World {
-                                                src: None,
-                                                dest: *troop_transform
+                                            LerpType::world_to(
+                                                *troop_transform
                                                     * Transform::from_translation(
                                                         0.0036 * Vec3::unit_y(),
                                                     ),
-                                            },
-                                            1.0,
+                                            ),
+                                            0.5,
                                             0.0,
                                         )
                                     } else {
                                         Lerp::new(
-                                            LerpType::World {
-                                                src: None,
-                                                dest: Transform::from_translation(intersection)
+                                            LerpType::world_to(
+                                                Transform::from_translation(intersection)
                                                     * Transform::from_translation(
                                                         0.0018 * Vec3::unit_y(),
                                                     ),
-                                            },
-                                            1.0,
+                                            ),
+                                            0.5,
                                             0.0,
                                         )
                                     };
@@ -175,22 +178,24 @@ fn sector_context_system(
                                                 && troop.location.is_some()
                                         })
                                         .count();
-                                    println!(
-                                        "Total troops: {}, placed: {}",
-                                        num_troops, placed_troops
-                                    );
+                                    //println!(
+                                    //    "Total troops: {}, placed: {}",
+                                    //    num_troops, placed_troops
+                                    //);
                                     if placed_troops == num_troops as usize {
                                         if let Some(mut context_action) = queue.pop() {
                                             if context_action.context == info.context {
                                                 match context_action.action {
                                                     ActionAggregation::Multiple(
                                                         ref mut actions,
-                                                    ) => actions
-                                                        .push(Action::add_lerp(lerp_entity, lerp)),
+                                                    ) => actions.push(
+                                                        Action::add_lerp(lerp_entity, lerp).into(),
+                                                    ),
                                                     ActionAggregation::Single(ref action) => {
                                                         context_action.action = multi![
                                                             action.clone(),
                                                             Action::add_lerp(lerp_entity, lerp)
+                                                                .into()
                                                         ]
                                                     }
                                                 };
@@ -204,8 +209,9 @@ fn sector_context_system(
                                             }
                                         } else {
                                             queue.push_front(
-                                                info.context
-                                                    .action(Action::add_lerp(lerp_entity, lerp)),
+                                                info.context.action(
+                                                    Action::add_lerp(lerp_entity, lerp).into(),
+                                                ),
                                             )
                                         }
                                         info.context = Context::None;
@@ -218,24 +224,26 @@ fn sector_context_system(
                                                 match context_action.action {
                                                     ActionAggregation::Multiple(
                                                         ref mut actions,
-                                                    ) => actions
-                                                        .push(Action::add_lerp(lerp_entity, lerp)),
+                                                    ) => actions.push(
+                                                        Action::add_lerp(lerp_entity, lerp).into(),
+                                                    ),
                                                     ActionAggregation::Single(ref action) => {
                                                         context_action.action = multi![
                                                             action.clone(),
                                                             Action::add_lerp(lerp_entity, lerp)
+                                                                .into()
                                                         ]
                                                     }
                                                 };
                                             } else {
-                                                queue.push_front(info.context.actions(vec![
-                                                    Action::add_lerp(lerp_entity, lerp),
-                                                ]));
+                                                queue.push_front(info.context.action(
+                                                    Action::add_lerp(lerp_entity, lerp).into(),
+                                                ));
                                             }
                                         } else {
-                                            queue.push_front(info.context.actions(vec![
-                                                Action::add_lerp(lerp_entity, lerp),
-                                            ]));
+                                            queue.push_front(info.context.action(
+                                                Action::add_lerp(lerp_entity, lerp).into(),
+                                            ));
                                         }
                                     }
                                 } else {
@@ -258,12 +266,12 @@ fn sector_context_system(
 }
 
 fn prediction_context_system(
-    info: Res<Info>,
+    mut info: ResMut<Info>,
     data: Res<Data>,
     mut queue: ResMut<ActionQueue>,
     windows: Res<Windows>,
     mouse_input: Res<Input<MouseButton>>,
-    cameras: Query<(&Camera, &Transform)>,
+    cameras: Query<(&Camera, &Transform), Without<OrthographicProjection>>,
     colliders: QuerySet<(
         Query<(Entity, &Collider, &Transform, &FactionPredictionCard)>,
         Query<(Entity, &Collider, &Transform, &TurnPredictionCard)>,
@@ -289,14 +297,18 @@ fn prediction_context_system(
                 let chosen_action = Action::add_lerp(
                     element,
                     Lerp::new(
-                        LerpType::UI {
-                            src: None,
-                            dest: data.prediction_nodes.chosen_faction,
-                        },
+                        LerpType::ui_to(
+                            (
+                                data.prediction_nodes.chosen_faction,
+                                Quat::from_rotation_x(0.5 * PI),
+                            )
+                                .into(),
+                        ),
                         1.0,
                         0.0,
                     ),
-                );
+                )
+                .into();
 
                 // Animate out faction cards
                 let mut out_actions = colliders
@@ -308,21 +320,23 @@ fn prediction_context_system(
                         Action::add_lerp(
                             element,
                             Lerp::new(
-                                LerpType::UI {
-                                    src: None,
-                                    dest: data.prediction_nodes.src,
-                                },
+                                LerpType::ui_to(
+                                    (
+                                        data.prediction_nodes.src,
+                                        Quat::from_rotation_x(0.5 * PI) * Quat::from_rotation_z(PI),
+                                    )
+                                        .into(),
+                                ),
                                 indiv_anim_time,
                                 1.0 + (delay * i as f32),
                             ),
                         )
+                        .into()
                     })
                     .collect::<Vec<_>>();
                 out_actions.push(chosen_action);
-                queue.push_seq_front(vec![
-                    info.context.actions(out_actions),
-                    info.context.action(Action::ContextChange(Context::None)),
-                ]);
+                queue.push_multiple_front(out_actions);
+                info.context = Context::None;
             }
             if let Some(RayCastResult {
                 intersection: _,
@@ -340,14 +354,18 @@ fn prediction_context_system(
                 let chosen_action = Action::add_lerp(
                     element,
                     Lerp::new(
-                        LerpType::UI {
-                            src: None,
-                            dest: data.prediction_nodes.chosen_turn,
-                        },
+                        LerpType::ui_to(
+                            (
+                                data.prediction_nodes.chosen_turn,
+                                Quat::from_rotation_x(0.5 * PI),
+                            )
+                                .into(),
+                        ),
                         1.0,
                         0.0,
                     ),
-                );
+                )
+                .into();
                 // Animate out turn cards
                 let mut out_actions = colliders
                     .q1()
@@ -358,21 +376,24 @@ fn prediction_context_system(
                         Action::add_lerp(
                             element,
                             Lerp::new(
-                                LerpType::UI {
-                                    src: None,
-                                    dest: data.prediction_nodes.src,
-                                },
+                                LerpType::ui_to(
+                                    (
+                                        data.prediction_nodes.src,
+                                        Quat::from_rotation_x(0.5 * PI) * Quat::from_rotation_z(PI),
+                                        0.6,
+                                    )
+                                        .into(),
+                                ),
                                 indiv_anim_time,
                                 1.0 + (delay * i as f32),
                             ),
                         )
+                        .into()
                     })
                     .collect::<Vec<_>>();
                 out_actions.push(chosen_action);
-                queue.push_seq_front(vec![
-                    info.context.actions(out_actions),
-                    info.context.action(Action::ContextChange(Context::None)),
-                ]);
+                queue.push_multiple_front(out_actions);
+                info.context = Context::None;
             }
         }
     }

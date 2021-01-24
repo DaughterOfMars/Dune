@@ -13,6 +13,7 @@ pub struct Data {
     pub prediction_nodes: PredictionNodes,
     pub traitor_nodes: Vec<Vec2>,
     pub token_nodes: TokenNodes,
+    pub ui_structure: UiStructure,
 }
 
 impl Data {
@@ -30,6 +31,7 @@ impl Data {
             ron::de::from_reader(File::open("data/traitor_nodes.ron").unwrap()).unwrap();
         let token_nodes =
             ron::de::from_reader(File::open("data/token_nodes.ron").unwrap()).unwrap();
+        let ui_structure = ron::de::from_reader(File::open("data/ui.ron").unwrap()).unwrap();
         Data {
             locations,
             leaders,
@@ -39,6 +41,7 @@ impl Data {
             prediction_nodes,
             traitor_nodes,
             token_nodes,
+            ui_structure,
         }
     }
 }

@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use bevy::math::{Vec2, Vec3};
+use bevy::{
+    math::{Rect, Size, Vec2, Vec3},
+    ui::Val,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash)]
@@ -34,6 +37,19 @@ impl Faction {
     }
 }
 
+impl std::fmt::Display for Faction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Faction::Atreides => write!(f, "Atreides"),
+            Faction::Harkonnen => write!(f, "Harkonnen"),
+            Faction::Emperor => write!(f, "Emperor"),
+            Faction::SpacingGuild => write!(f, "Spacing Guild"),
+            Faction::Fremen => write!(f, "Fremen"),
+            Faction::BeneGesserit => write!(f, "Bene Gesserit"),
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Leader {
     pub name: String,
@@ -47,15 +63,14 @@ pub struct Location {
     pub name: String,
     pub terrain: Terrain,
     pub spice: Option<Vec3>,
-    pub sectors: HashMap<i32, LocationNodes>
+    pub sectors: HashMap<i32, LocationNodes>,
 }
-
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct LocationNodes {
     pub vertices: Vec<Vec3>,
     pub indices: Vec<i32>,
-    pub fighters: Vec<Vec3>
+    pub fighters: Vec<Vec3>,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -93,39 +108,39 @@ pub enum CardEffect {
 impl CardEffect {
     fn description(&self) -> String {
         match self {
-            CardEffect::Worthless => 
+            CardEffect::Worthless =>
                 "Play as part of your Battle Plan, in place of weapon, defense, or both.
                 This card has no value in play, and you can discard it only by playing it in your Battle Plan.".to_string(),
-            CardEffect::PoisonWeapon => 
+            CardEffect::PoisonWeapon =>
                 "Play as part of your Battle Plan.
                 Kills enemy leader before the battle is resolved.
                 May be countered by an appropriate defense (Snooper).
                 You may keep this card if you win in this battle.".to_string(),
-            CardEffect::ProjectileWeapon => 
+            CardEffect::ProjectileWeapon =>
                 "Play as part of your Battle Plan.
                 Kills enemy leader before the battle is resolved.
                 May be countered by an appropriate defense (Shield).
                 You may keep this card if you win in this battle.".to_string(),
-            CardEffect::CheapHero => 
+            CardEffect::CheapHero =>
                 "Play as a leader with zero strength on your Battle Plan.
                 (leader allows you to play 1 weapon & 1 defense card on Battle Plan)
                 Can be played together with another leader, allowing you to return & save that leader immediately after both Battle Plans were revealed.".to_string(),
-            CardEffect::PoisonDefense => 
+            CardEffect::PoisonDefense =>
                 "Play as part of your Battle Plan.
                 Protects your leader from enemy poison weapon in this battle.
                 You may keep this card if you win in this battle.".to_string(),
-            CardEffect::ProjectileDefense => 
+            CardEffect::ProjectileDefense =>
                 "Play as part of your Battle Plan.
                 Protects your leader from enemy projectile weapon in this battle.
                 You may keep this card if you win in this battle.".to_string(),
             CardEffect::Atomics =>
                 "Play after the storm movement is calulated by before storm is moved, and only if you have token(s) on the Shield Wall or an adjacent territory.
                 All tokens in the Shield Wall are destroyed. Arrakeen, Imperial Basin & Carthag are no longer protected from the storm for the rest of the game.".to_string(),
-            CardEffect::Movement => 
+            CardEffect::Movement =>
                 "Play during Movement round.
                 Take an additional on-planet token movement subject to normal movement rules.
                 This may be the same or another group of your tokens.".to_string(),
-            CardEffect::Karama => 
+            CardEffect::Karama =>
                 "You may play this cartd to activate a single Karama Power of your choice.".to_string(),
             CardEffect::Lasgun =>
                 "Play as part of your Battle Plan.
@@ -157,7 +172,7 @@ pub struct TreacheryCard {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct TraitorCard {
-    pub leader: Leader
+    pub leader: Leader,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -168,17 +183,17 @@ pub struct SpiceCard {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct StormCard {
-    pub val: i32
+    pub val: i32,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct FactionPredictionCard {
-    pub faction: Faction
+    pub faction: Faction,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TurnPredictionCard {
-    pub turn: i32
+    pub turn: i32,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize)]
@@ -214,4 +229,69 @@ pub struct TokenNodes {
     pub spice: Vec<Vec3>,
     pub fighters: Vec<Vec3>,
     pub factions: Vec<Vec3>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct UiRect {
+    pub left: f32,
+    pub right: f32,
+    pub top: f32,
+    pub bottom: f32,
+}
+
+impl UiRect {
+    pub fn center(&self) -> Vec2 {
+        Vec2::new(
+            0.5 * (self.right - self.left) + self.left,
+            0.5 * (self.top - self.bottom) + self.bottom,
+        )
+    }
+
+    pub fn top_left(&self) -> Rect<Val> {
+        Rect {
+            top: Val::Percent(50.0 * (-self.top + 1.0)),
+            left: Val::Percent(50.0 * (self.left + 1.0)),
+            ..Default::default()
+        }
+    }
+
+    pub fn size(&self) -> Size<Val> {
+        Size::new(
+            Val::Percent(50.0 * (self.right - self.left)),
+            Val::Percent(50.0 * (self.top - self.bottom)),
+        )
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct UiStructure {
+    pub turn_order: UiRect,
+    pub phases: UiRect,
+    pub turn_counter: UiRect,
+}
+
+impl UiStructure {
+    pub fn get_turn_tiles(&self) -> Vec<UiRect> {
+        let tile_height = (self.turn_order.bottom - self.turn_order.top) / 6.0;
+        (0..6)
+            .map(|i| UiRect {
+                top: self.turn_order.top + i as f32 * tile_height,
+                left: self.turn_order.left,
+                right: self.turn_order.right,
+                bottom: self.turn_order.top + (i as f32 + 1.0) * tile_height,
+            })
+            .collect()
+    }
+
+    pub fn get_phase_bounds(&self) -> Vec<UiRect> {
+        let tile_width = (self.turn_order.right - self.turn_order.left) / 6.0;
+        (0..6)
+            .map(|i| UiRect {
+                top: self.turn_order.top,
+                left: self.turn_order.left + i as f32 * tile_width,
+                right: self.turn_order.right + (i as f32 + 1.0) * tile_width,
+                bottom: self.turn_order.bottom,
+            })
+            .collect()
+    }
 }

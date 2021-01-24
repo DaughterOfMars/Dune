@@ -51,6 +51,7 @@ fn init(
     mut info: ResMut<Info>,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut colors: ResMut<Assets<ColorMaterial>>,
 ) {
     asset_server.load_folder(".").unwrap();
     // Board
@@ -192,10 +193,13 @@ fn init(
     let turn_prediction_shape =
         ShapeHandle::new(Cuboid::new(Vector3::new(0.125, 0.0005, 0.18) * 0.006));
 
+    let turn_tiles = data.ui_structure.get_turn_tiles();
+
     info.play_order = info
         .factions_in_play
         .iter()
-        .map(|&faction| {
+        .enumerate()
+        .map(|(i, &faction)| {
             let faction_code = match faction {
                 Faction::Atreides => "at",
                 Faction::Harkonnen => "hk",
@@ -204,6 +208,57 @@ fn init(
                 Faction::Fremen => "fr",
                 Faction::BeneGesserit => "bg",
             };
+
+            let logo_texture =
+                asset_server.get_handle(format!("tokens/{}_logo.png", faction_code).as_str());
+
+            commands
+                .spawn(NodeBundle {
+                    style: Style {
+                        position_type: PositionType::Absolute,
+                        position: turn_tiles[i].top_left(),
+                        size: turn_tiles[i].size(),
+                        align_items: AlignItems::FlexStart,
+                        padding: Rect {
+                            top: Val::Percent(1.0),
+                            bottom: Val::Percent(1.0),
+                            left: Val::Percent(1.0),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                    material: colors.add(if i % 2 == 0 {
+                        (Color::RED + Color::rgba_linear(0.0, 0.0, 0.0, -0.5)).into()
+                    } else {
+                        (Color::GREEN + Color::rgba_linear(0.0, 0.0, 0.0, -0.5)).into()
+                    }),
+                    ..Default::default()
+                })
+                .with_children(|parent| {
+                    parent
+                        .spawn(ImageBundle {
+                            style: Style {
+                                size: Size::new(Val::Px(20.0), Val::Px(20.0)),
+                                ..Default::default()
+                            },
+                            material: colors.add(logo_texture.into()),
+                            ..Default::default()
+                        })
+                        .spawn(TextBundle {
+                            text: Text {
+                                font: asset_server.get_handle("fonts/FiraSans-Bold.ttf"),
+                                value: faction.to_string(),
+                                style: TextStyle {
+                                    font_size: 20.0,
+                                    color: Color::ANTIQUE_WHITE,
+                                    ..Default::default()
+                                },
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        });
+                });
+
             let shield_front_texture = asset_server
                 .get_handle(format!("shields/{}_shield_front.png", faction_code).as_str());
             let shield_back_texture = asset_server
@@ -242,12 +297,7 @@ fn init(
                 ..Default::default()
             });
             commands
-                .spawn(
-                    ColliderBundle::new(faction_prediction_shape.clone()).with_transform(
-                        Transform::from_scale(Vec3::splat(0.01))
-                            * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI)),
-                    ),
-                )
+                .spawn(ColliderBundle::new(faction_prediction_shape.clone()))
                 .with_bundle(UniqueBundle::new(Faction::BeneGesserit))
                 .with(FactionPredictionCard { faction })
                 .with_children(|parent| {
@@ -400,12 +450,7 @@ fn init(
             ..Default::default()
         });
         commands
-            .spawn(
-                ColliderBundle::new(turn_prediction_shape.clone()).with_transform(
-                    Transform::from_scale(Vec3::splat(0.006))
-                        * Transform::from_rotation(Quat::from_rotation_x(0.5 * PI)),
-                ),
-            )
+            .spawn(ColliderBundle::new(turn_prediction_shape.clone()))
             .with_bundle(UniqueBundle::new(Faction::BeneGesserit))
             .with(TurnPredictionCard { turn })
             .with_children(|parent| {

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bevy::{
     math::{Mat4, Vec3, Vec4Swizzles},
     prelude::*,
-    render::camera::Camera,
+    render::camera::{Camera, OrthographicProjection},
 };
 use ncollide3d::{
     na::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3},
@@ -70,7 +70,7 @@ pub struct RayCastResult<'a, T: Component> {
 
 pub fn closest<'a, T: Component>(
     windows: &Res<Windows>,
-    cameras: &Query<(&Camera, &Transform)>,
+    cameras: &Query<(&Camera, &Transform), Without<OrthographicProjection>>,
     colliders: &'a Query<(Entity, &Collider, &Transform, &'a T)>,
 ) -> Option<RayCastResult<'a, T>> {
     if let Some((camera, cam_transform)) = cameras.iter().next() {
@@ -142,7 +142,7 @@ pub struct MutRayCastResult<'a, T: Component> {
 
 pub fn closest_mut<'a, 'b, T: Component>(
     windows: &Res<Windows>,
-    cameras: &Query<(&Camera, &Transform)>,
+    cameras: &Query<(&Camera, &Transform), Without<OrthographicProjection>>,
     colliders: &'a mut Query<(Entity, &Collider, &Transform, &'b mut T)>,
 ) -> Option<MutRayCastResult<'a, T>> {
     if let Some((camera, cam_transform)) = cameras.iter().next() {
@@ -226,4 +226,12 @@ where
     for entity in order {
         entities.get_mut(&entity).unwrap().translation = start + (offset * Vec3::unit_y());
     }
+}
+
+pub fn hand_positions(n: i32) -> Vec<Vec2> {
+    // TODO: Make this radial
+    let res = (0..n)
+        .map(|i| Vec2::new(2.0 * ((1.0 + i as f32) / (1.0 + n as f32)) - 1.0, -0.3))
+        .collect();
+    res
 }

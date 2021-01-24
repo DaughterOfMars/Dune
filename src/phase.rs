@@ -1,13 +1,14 @@
 use std::{
     collections::{HashMap, VecDeque},
+    f32::consts::PI,
     ops::DerefMut,
 };
 
 use crate::{
-    components::{Collider, Disorganized, Troop},
+    components::{Collider, Disorganized, Troop, UniqueBundle},
     data::{TraitorCard, TurnPredictionCard},
-    lerper::{Lerp, LerpType},
-    util::shuffle_deck,
+    lerper::{Lerp, LerpType, UITransform},
+    util::{hand_positions, shuffle_deck},
 };
 use bevy::{prelude::*, render::camera::Camera};
 use rand::{prelude::SliceRandom, Rng};
@@ -63,14 +64,14 @@ pub enum Context {
 }
 
 impl Context {
-    pub fn action(&self, action: Action) -> ContextAction {
+    pub fn action(&self, action: ActionChain) -> ContextAction {
         ContextAction {
             action: single!(action),
             context: *self,
         }
     }
 
-    pub fn actions(&self, actions: Vec<Action>) -> ContextAction {
+    pub fn actions(&self, actions: Vec<ActionChain>) -> ContextAction {
         ContextAction {
             action: ActionAggregation::Multiple(actions),
             context: *self,
@@ -87,6 +88,7 @@ pub enum Action {
     Lerp { element: Entity, lerp: Option<Lerp> },
     ContextChange(Context),
     Delay { time: f32 },
+    Assign { element: Entity, faction: Faction },
 }
 
 impl Action {
@@ -94,6 +96,13 @@ impl Action {
         Self::Lerp {
             element,
             lerp: Some(lerp),
+        }
+    }
+
+    pub fn then(self, next: ActionChain) -> ActionChain {
+        ActionChain {
+            current: self,
+            next: Some(Box::new(next)),
         }
     }
 }
@@ -108,6 +117,44 @@ impl std::fmt::Display for Action {
             Action::ContextChange(context) => write!(f, "ContextChange({:?})", context),
             Action::Delay { time } => write!(f, "Delay({})", time),
             Action::SetActivePlayer { player } => write!(f, "SetActivePlayer({:?})", player),
+            Action::Assign { element, faction } => {
+                write!(f, "Assign({:?} -> {:?})", element, faction)
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ActionChain {
+    current: Action,
+    next: Option<Box<ActionChain>>,
+}
+
+impl ActionChain {
+    pub fn append(&mut self, next: ActionChain) {
+        let mut next_ref = &mut self.next;
+        while next_ref.is_some() {
+            next_ref = &mut next_ref.as_mut().unwrap().next;
+        }
+        next_ref.replace(Box::new(next));
+    }
+}
+
+impl std::fmt::Display for ActionChain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(ref next) = self.next {
+            write!(f, "Chain({} -> {})", self.current, next)
+        } else {
+            write!(f, "{}", self.current)
+        }
+    }
+}
+
+impl From<Action> for ActionChain {
+    fn from(action: Action) -> Self {
+        ActionChain {
+            current: action,
+            next: None,
         }
     }
 }
@@ -118,6 +165,15 @@ pub struct ContextAction {
 }
 
 impl Into<ContextAction> for Action {
+    fn into(self) -> ContextAction {
+        ContextAction {
+            action: single!(self.into()),
+            context: Context::None,
+        }
+    }
+}
+
+impl Into<ContextAction> for ActionChain {
     fn into(self) -> ContextAction {
         ContextAction {
             action: single!(self),
@@ -142,8 +198,8 @@ impl std::fmt::Display for ContextAction {
 }
 
 pub enum ActionAggregation {
-    Single(Action),
-    Multiple(Vec<Action>),
+    Single(ActionChain),
+    Multiple(Vec<ActionChain>),
 }
 
 impl std::fmt::Display for ActionAggregation {
@@ -178,20 +234,20 @@ impl ActionQueue {
         self.0.push_back(action)
     }
 
-    pub fn push_single(&mut self, action: Action) {
+    pub fn push_single(&mut self, action: ActionChain) {
         self.0.push_back(action.into())
     }
 
-    pub fn push_single_for_context(&mut self, action: Action, context: Context) {
+    pub fn push_single_for_context(&mut self, action: ActionChain, context: Context) {
         self.0.push_back(context.action(action))
     }
 
-    pub fn push_multiple(&mut self, actions: Vec<Action>) {
+    pub fn push_multiple(&mut self, actions: Vec<ActionChain>) {
         self.0
             .push_back(ActionAggregation::Multiple(actions).into())
     }
 
-    pub fn push_multiple_for_context(&mut self, actions: Vec<Action>, context: Context) {
+    pub fn push_multiple_for_context(&mut self, actions: Vec<ActionChain>, context: Context) {
         self.0.push_back(context.actions(actions))
     }
 
@@ -199,20 +255,20 @@ impl ActionQueue {
         self.0.push_front(action)
     }
 
-    pub fn push_single_front(&mut self, action: Action) {
+    pub fn push_single_front(&mut self, action: ActionChain) {
         self.0.push_front(action.into())
     }
 
-    pub fn push_single_front_for_context(&mut self, action: Action, context: Context) {
+    pub fn push_single_front_for_context(&mut self, action: ActionChain, context: Context) {
         self.0.push_front(context.action(action))
     }
 
-    pub fn push_multiple_front(&mut self, actions: Vec<Action>) {
+    pub fn push_multiple_front(&mut self, actions: Vec<ActionChain>) {
         self.0
             .push_front(ActionAggregation::Multiple(actions).into())
     }
 
-    pub fn push_multiple_front_for_context(&mut self, actions: Vec<Action>, context: Context) {
+    pub fn push_multiple_front_for_context(&mut self, actions: Vec<ActionChain>, context: Context) {
         self.0.push_front(context.actions(actions))
     }
 
@@ -265,8 +321,8 @@ impl std::fmt::Display for ActionQueue {
 enum ActionResult {
     None,
     Remove,
-    Replace { action: Action },
-    Add { action: Action },
+    Replace(ActionChain),
+    Add(ActionChain),
 }
 
 pub fn action_system(
@@ -303,10 +359,10 @@ pub fn action_system(
                         ActionResult::Remove => {
                             queue.pop();
                         }
-                        ActionResult::Replace { action: new_action } => {
+                        ActionResult::Replace(new_action) => {
                             *action = new_action;
                         }
-                        ActionResult::Add { action: new_action } => {
+                        ActionResult::Add(new_action) => {
                             queue.push_single(new_action);
                         }
                     }
@@ -324,10 +380,8 @@ pub fn action_system(
                         ) {
                             ActionResult::None => new_actions.push(action),
                             ActionResult::Remove => (),
-                            ActionResult::Replace { action: new_action } => {
-                                new_actions.push(new_action)
-                            }
-                            ActionResult::Add { action: new_action } => {
+                            ActionResult::Replace(new_action) => new_actions.push(new_action),
+                            ActionResult::Add(new_action) => {
                                 new_actions.push(action);
                                 new_actions.push(new_action)
                             }
@@ -346,14 +400,14 @@ pub fn action_system(
 
 fn action_subsystem(
     commands: &mut Commands,
-    action: &mut Action,
+    action: &mut ActionChain,
     time: &Res<Time>,
     info: &mut ResMut<Info>,
     state: &mut ResMut<State>,
     queries: &mut QuerySet<(Query<&mut Lerp>, Query<&Player>, Query<&mut Collider>)>,
 ) -> ActionResult {
-    match action {
-        Action::Enable { clickables } => {
+    match action.current {
+        Action::Enable { ref clickables } => {
             for mut collider in queries.q2_mut().iter_mut() {
                 collider.enabled = false;
             }
@@ -362,7 +416,6 @@ fn action_subsystem(
                     collider.enabled = true;
                 }
             }
-            ActionResult::Remove
         }
         Action::PassTurn => {
             print!(
@@ -383,7 +436,6 @@ fn action_subsystem(
                         .unwrap()
                         .faction
                 );
-                ActionResult::Remove
             } else {
                 info.current_turn += 1;
                 if info.current_turn >= info.play_order.len() {
@@ -396,9 +448,7 @@ fn action_subsystem(
                             .unwrap()
                             .faction
                     );
-                    ActionResult::Replace {
-                        action: Action::AdvancePhase,
-                    }
+                    action.append(Action::AdvancePhase.into());
                 } else {
                     println!(
                         " to {:?}",
@@ -408,54 +458,54 @@ fn action_subsystem(
                             .unwrap()
                             .faction
                     );
-                    ActionResult::Remove
                 }
             }
         }
         Action::AdvancePhase => {
             state.phase.advance();
-            ActionResult::Remove
         }
         Action::Lerp {
             element,
-            lerp: new_lerp,
+            lerp: ref mut new_lerp,
         } => {
-            if let Ok(mut old_lerp) = queries.q0_mut().get_mut(*element) {
+            if let Ok(mut old_lerp) = queries.q0_mut().get_mut(element) {
                 if old_lerp.time <= 0.0 {
                     if let Some(lerp) = new_lerp.take() {
                         *old_lerp = lerp;
-                        ActionResult::None
-                    } else {
-                        ActionResult::Remove
+                        return ActionResult::None;
                     }
                 } else {
-                    ActionResult::None
+                    return ActionResult::None;
                 }
             } else {
                 if let Some(lerp) = new_lerp.take() {
-                    commands.insert_one(*element, lerp);
-                    ActionResult::None
-                } else {
-                    ActionResult::Remove
+                    commands.insert_one(element, lerp);
+                    return ActionResult::None;
                 }
             }
         }
         Action::ContextChange(context) => {
-            info.context = *context;
-            ActionResult::Remove
+            info.context = context;
         }
-        Action::Delay { time: remaining } => {
+        Action::Delay {
+            time: ref mut remaining,
+        } => {
             *remaining -= time.delta_seconds();
-            if *remaining <= 0.0 {
-                ActionResult::Remove
-            } else {
-                ActionResult::None
+            if *remaining > 0.0 {
+                return ActionResult::None;
             }
         }
         Action::SetActivePlayer { player } => {
-            info.active_player = Some(*player);
-            ActionResult::Remove
+            info.active_player = Some(player);
         }
+        Action::Assign { element, faction } => {
+            commands.insert(element, UniqueBundle::new(faction));
+        }
+    }
+    if let Some(next) = action.next.take() {
+        ActionResult::Replace(*next)
+    } else {
+        ActionResult::Remove
     }
 }
 
@@ -488,18 +538,17 @@ fn stack_troops_system(
                         Action::add_lerp(
                             *entity,
                             Lerp::new(
-                                LerpType::World {
-                                    src: None,
-                                    dest: Transform::from_translation(Vec3::new(
-                                        node.x, node.z, -node.y,
-                                    )) * Transform::from_translation(
-                                        i as f32 * 0.0018 * Vec3::unit_y(),
-                                    ),
-                                },
+                                LerpType::world_to(
+                                    Transform::from_translation(Vec3::new(node.x, node.z, -node.y))
+                                        * Transform::from_translation(
+                                            i as f32 * 0.0018 * Vec3::unit_y(),
+                                        ),
+                                ),
                                 0.1,
                                 0.0,
                             ),
                         )
+                        .into()
                     })
                     .collect::<Vec<_>>(),
             );
@@ -624,14 +673,23 @@ fn setup_phase_system(
                                     Action::add_lerp(
                                         element,
                                         Lerp::new(
-                                            LerpType::UI {
-                                                src: Some(data.prediction_nodes.src),
-                                                dest: data.prediction_nodes.factions[i],
-                                            },
+                                            LerpType::ui_from_to(
+                                                (
+                                                    data.prediction_nodes.src,
+                                                    Quat::from_rotation_x(0.5 * PI),
+                                                )
+                                                    .into(),
+                                                (
+                                                    data.prediction_nodes.factions[i],
+                                                    Quat::from_rotation_x(0.5 * PI),
+                                                )
+                                                    .into(),
+                                            ),
                                             indiv_anim_time,
                                             delay * i as f32,
                                         ),
                                     )
+                                    .into()
                                 })
                                 .collect::<Vec<_>>();
                             queue.push_multiple(actions);
@@ -640,8 +698,8 @@ fn setup_phase_system(
                                 .iter()
                                 .map(|(element, _)| element)
                                 .collect();
-                            queue.push_single(Action::Enable { clickables });
-                            queue.push_single(Action::ContextChange(Context::Predicting));
+                            queue.push_single(Action::Enable { clickables }.into());
+                            queue.push_single(Action::ContextChange(Context::Predicting).into());
 
                             // Lerp in Turn Cards
                             let animation_time = 1.5;
@@ -656,14 +714,25 @@ fn setup_phase_system(
                                     Action::add_lerp(
                                         element,
                                         Lerp::new(
-                                            LerpType::UI {
-                                                src: Some(data.prediction_nodes.src),
-                                                dest: data.prediction_nodes.turns[i],
-                                            },
+                                            LerpType::ui_from_to(
+                                                (
+                                                    data.prediction_nodes.src,
+                                                    Quat::from_rotation_x(0.5 * PI),
+                                                    0.6,
+                                                )
+                                                    .into(),
+                                                (
+                                                    data.prediction_nodes.turns[i],
+                                                    Quat::from_rotation_x(0.5 * PI),
+                                                    0.6,
+                                                )
+                                                    .into(),
+                                            ),
                                             indiv_anim_time,
                                             delay * i as f32,
                                         ),
                                     )
+                                    .into()
                                 })
                                 .collect::<Vec<_>>();
                             queue.push_multiple(actions);
@@ -672,10 +741,10 @@ fn setup_phase_system(
                                 .iter()
                                 .map(|(element, _)| element)
                                 .collect();
-                            queue.push_single(Action::Enable { clickables });
-                            queue.push_single(Action::ContextChange(Context::Predicting));
-                            queue.push_single(Action::PassTurn);
-                            queue.push_single(Action::AdvancePhase);
+                            queue.push_single(Action::Enable { clickables }.into());
+                            queue.push_single(Action::ContextChange(Context::Predicting).into());
+                            queue.push_single(Action::PassTurn.into());
+                            queue.push_single(Action::AdvancePhase.into());
                             break;
                         }
                     }
@@ -733,19 +802,17 @@ fn setup_phase_system(
                                                     Action::add_lerp(
                                                         *entity,
                                                         Lerp::new(
-                                                            LerpType::World {
-                                                                src: None,
-                                                                dest: Transform::from_translation(
+                                                            LerpType::world_to(
+                                                                Transform::from_translation(
                                                                     Vec3::new(
                                                                         node.x, node.z, -node.y,
                                                                     ),
-                                                                )
-                                                                    * Transform::from_translation(
-                                                                        i as f32
-                                                                            * 0.0018
-                                                                            * Vec3::unit_y(),
-                                                                    ),
-                                                            },
+                                                                ) * Transform::from_translation(
+                                                                    i as f32
+                                                                        * 0.0018
+                                                                        * Vec3::unit_y(),
+                                                                ),
+                                                            ),
                                                             0.1,
                                                             0.0,
                                                         ),
@@ -792,11 +859,14 @@ fn setup_phase_system(
                     );
 
                     // Move the camera so we can see the board good
-                    queue.push_single(Action::add_lerp(
-                        cameras.iter().next().unwrap(),
-                        Lerp::move_camera(data.camera_nodes.board, 1.0),
-                    ));
-                    queue.push_single(Action::Enable { clickables });
+                    queue.push_single(
+                        Action::add_lerp(
+                            cameras.iter().next().unwrap(),
+                            Lerp::move_camera(data.camera_nodes.board, 1.0),
+                        )
+                        .into(),
+                    );
+                    queue.push_single(Action::Enable { clickables }.into());
                     queue.extend(if bg_pos < fr_pos {
                         faction_order[..bg_pos]
                             .iter()
@@ -816,11 +886,14 @@ fn setup_phase_system(
                             .map(|action| action.into())
                             .collect::<Vec<_>>()
                     });
-                    queue.push_single(Action::add_lerp(
-                        cameras.iter().next().unwrap(),
-                        Lerp::move_camera(data.camera_nodes.main, 1.0),
-                    ));
-                    queue.push_single(Action::AdvancePhase);
+                    queue.push_single(
+                        Action::add_lerp(
+                            cameras.iter().next().unwrap(),
+                            Lerp::move_camera(data.camera_nodes.main, 1.0),
+                        )
+                        .into(),
+                    );
+                    queue.push_single(Action::AdvancePhase.into());
                 }
                 SetupSubPhase::DealTraitors => {
                     let mut cards = traitor_cards
@@ -834,23 +907,79 @@ fn setup_phase_system(
                             .partial_cmp(&transform2.translation.y)
                             .unwrap()
                     });
-                    for _ in 0..4 {
-                        for &entity in info.play_order.iter() {
+                    let mut actions = Vec::new();
+                    let positions = hand_positions(4);
+                    let turn_tile_pts = data
+                        .ui_structure
+                        .get_turn_tiles()
+                        .iter()
+                        .map(|tile| tile.center())
+                        .collect::<Vec<_>>();
+
+                    let mut delay = 0.0;
+                    for i in 0..4 {
+                        for (j, &entity) in info.play_order.iter().enumerate() {
                             if let Ok((_, mut player)) = players.get_mut(entity) {
                                 let card = cards.pop().unwrap().0;
                                 player.traitor_cards.push(card);
+                                if entity == info.get_active_player() {
+                                    actions.push(
+                                        Action::add_lerp(
+                                            card,
+                                            Lerp::new(
+                                                LerpType::card_to_ui(positions[i], 1.0),
+                                                0.6,
+                                                delay,
+                                            ),
+                                        )
+                                        .then(
+                                            Action::Assign {
+                                                element: card,
+                                                faction: player.faction,
+                                            }
+                                            .into(),
+                                        ),
+                                    );
+                                } else {
+                                    actions.push(
+                                        Action::add_lerp(
+                                            card,
+                                            Lerp::new(
+                                                LerpType::world_to_ui(
+                                                    (
+                                                        turn_tile_pts[j],
+                                                        Quat::from_rotation_x(0.5 * PI)
+                                                            * Quat::from_rotation_z(PI),
+                                                        0.4,
+                                                    )
+                                                        .into(),
+                                                ),
+                                                0.6,
+                                                delay,
+                                            ),
+                                        )
+                                        .then(
+                                            Action::Assign {
+                                                element: card,
+                                                faction: player.faction,
+                                            }
+                                            .into(),
+                                        ),
+                                    );
+                                }
                             }
+                            delay += 0.2;
                         }
                     }
+                    queue.push_multiple(actions);
 
                     *subphase = SetupSubPhase::PickTraitors;
                 }
                 SetupSubPhase::PickTraitors => {
                     // TODO: Add traitor cards as clickables
-                    todo!();
-                    queue.push_single(Action::Enable { clickables: vec![] });
-                    queue.push_single(Action::ContextChange(Context::PickingTraitors));
-                    queue.push_single(Action::PassTurn);
+                    queue.push_single(Action::Enable { clickables: vec![] }.into());
+                    queue.push_single(Action::ContextChange(Context::PickingTraitors).into());
+                    queue.push_single(Action::PassTurn.into());
                 }
                 SetupSubPhase::DealTreachery => {
                     /*
@@ -902,9 +1031,9 @@ fn storm_phase_system(
                     {
                         // TODO: Add weather control card as clickable
                         todo!();
-                        queue.push_single(Action::Enable { clickables: vec![] });
-                        queue.push_single(Action::ContextChange(Context::Prompting));
-                        queue.push_single(Action::PassTurn);
+                        queue.push_single(Action::Enable { clickables: vec![] }.into());
+                        queue.push_single(Action::ContextChange(Context::Prompting).into());
+                        queue.push_single(Action::PassTurn.into());
                     }
                 }
                 StormSubPhase::FamilyAtomics => {
@@ -913,9 +1042,9 @@ fn storm_phase_system(
                         .find(|(_, _, card)| card.name == "Family Atomics")
                     {
                         // TODO: Add family atomics as clickable
-                        queue.push_single(Action::Enable { clickables: vec![] });
-                        queue.push_single(Action::ContextChange(Context::Prompting));
-                        queue.push_single(Action::PassTurn);
+                        queue.push_single(Action::Enable { clickables: vec![] }.into());
+                        queue.push_single(Action::ContextChange(Context::Prompting).into());
+                        queue.push_single(Action::PassTurn.into());
                     }
                 }
                 StormSubPhase::MoveStorm => {
@@ -1039,7 +1168,7 @@ impl Default for State {
     fn default() -> Self {
         State {
             phase: Phase::Setup {
-                subphase: SetupSubPhase::ChooseFactions,
+                subphase: SetupSubPhase::AtStart,
             },
         }
     }
