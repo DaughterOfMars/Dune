@@ -4,15 +4,17 @@ mod components;
 mod data;
 mod input;
 mod lerper;
+mod menu;
 mod phase;
 mod stack;
 mod util;
 
 use components::*;
 use data::*;
-use input::InputPlugin;
+use input::GameInputPlugin;
 use lerper::LerpPlugin;
-use phase::{PhasePlugin, PhaseText};
+use menu::MenuPlugin;
+use phase::*;
 use resources::*;
 use util::divide_spice;
 
@@ -28,24 +30,41 @@ use rand::seq::SliceRandom;
 
 use std::f32::consts::PI;
 
-fn main() {
-    App::build()
-        .add_resource(Msaa { samples: 4 })
-        .add_resource(ClearColor(Color::BLACK))
-        .add_resource(Data::init())
-        .add_resource(Info::new())
-        .add_resource(crate::phase::State::default())
-        .add_plugins(DefaultPlugins)
-        .add_plugin(InputPlugin)
-        .add_plugin(PhasePlugin)
-        .add_plugin(LerpPlugin)
-        .add_startup_system(init.system())
-        .add_stage("end", SystemStage::parallel())
-        .add_system_to_stage("end", propagate_visibility.system())
-        .run();
+#[derive(Copy, Clone, Debug)]
+enum Screen {
+    MainMenu,
+    Server,
+    Join,
+    HostingGame,
+    JoinedGame,
 }
 
-fn init(
+const STATE_CHANGE_STAGE: &str = "state_change";
+const RESPONSE_STAGE: &str = "response";
+
+fn main() {
+    let mut app = App::build();
+    app.add_resource(Msaa { samples: 4 })
+        .add_resource(ClearColor(Color::BLACK))
+        .init_resource::<Data>()
+        .init_resource::<Info>()
+        .init_resource::<GamePhase>();
+
+    app.add_resource(State::new(Screen::MainMenu));
+
+    app.add_plugins(DefaultPlugins)
+        .add_plugin(GameInputPlugin)
+        //.add_plugin(PhasePlugin)
+        .add_plugin(LerpPlugin)
+        .add_plugin(MenuPlugin);
+
+    app.add_stage("end", SystemStage::parallel())
+        .add_system_to_stage("end", propagate_visibility.system());
+
+    app.run();
+}
+
+fn init_hosted_game(
     commands: &mut Commands,
     data: Res<Data>,
     mut info: ResMut<Info>,
@@ -87,7 +106,6 @@ fn init(
                     color: Color::ANTIQUE_WHITE,
                     ..Default::default()
                 },
-                ..Default::default()
             },
             ..Default::default()
         })
@@ -123,21 +141,6 @@ fn init(
             commands.with(SpiceNode::new(pos));
         }
     }
-
-    //Camera
-    commands
-        .spawn(Camera3dBundle {
-            perspective_projection: PerspectiveProjection {
-                near: 0.01,
-                far: 100.0,
-                ..Default::default()
-            },
-            transform: Transform::from_translation(Vec3::new(0.0, 2.5, 2.0))
-                .looking_at(Vec3::zero(), Vec3::unit_y())
-                * Transform::from_translation(Vec3::new(0.0, -0.4, 0.0)),
-            ..Default::default()
-        })
-        .spawn(CameraUiBundle::default());
 
     // Light
     commands

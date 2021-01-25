@@ -39,15 +39,39 @@ pub struct PhasePlugin;
 
 impl Plugin for PhasePlugin {
     fn build(&self, app: &mut AppBuilder) {
-        app.add_resource(ActionQueue::default())
-            .add_stage(STAGE, SystemStage::parallel())
-            .add_system_to_stage(STAGE, action_system.system())
-            .add_system_to_stage(STAGE, phase_text_system.system())
-            .add_system_to_stage(STAGE, public_troop_system.system())
-            .add_system_to_stage(STAGE, active_player_system.system())
-            .add_system_to_stage(STAGE, stack_troops_system.system())
-            .add_system_to_stage(STAGE, setup_phase_system.system())
-            .add_system_to_stage(STAGE, storm_phase_system.system());
+        app.add_stage(STAGE, StateStage::<crate::Screen>::default())
+            .add_resource(ActionQueue::default())
+            .on_state_update(STAGE, crate::Screen::HostingGame, action_system.system())
+            .on_state_update(
+                STAGE,
+                crate::Screen::HostingGame,
+                phase_text_system.system(),
+            )
+            .on_state_update(
+                STAGE,
+                crate::Screen::HostingGame,
+                public_troop_system.system(),
+            )
+            .on_state_update(
+                STAGE,
+                crate::Screen::HostingGame,
+                active_player_system.system(),
+            )
+            .on_state_update(
+                STAGE,
+                crate::Screen::HostingGame,
+                stack_troops_system.system(),
+            )
+            .on_state_update(
+                STAGE,
+                crate::Screen::HostingGame,
+                setup_phase_system.system(),
+            )
+            .on_state_update(
+                STAGE,
+                crate::Screen::HostingGame,
+                storm_phase_system.system(),
+            );
     }
 }
 
@@ -329,7 +353,7 @@ pub fn action_system(
     commands: &mut Commands,
     time: Res<Time>,
     mut info: ResMut<Info>,
-    mut state: ResMut<State>,
+    mut state: ResMut<GamePhase>,
     mut queue: ResMut<ActionQueue>,
     mut queries: QuerySet<(Query<&mut Lerp>, Query<&Player>, Query<&mut Collider>)>,
 ) {
@@ -403,7 +427,7 @@ fn action_subsystem(
     action: &mut ActionChain,
     time: &Res<Time>,
     info: &mut ResMut<Info>,
-    state: &mut ResMut<State>,
+    state: &mut ResMut<GamePhase>,
     queries: &mut QuerySet<(Query<&mut Lerp>, Query<&Player>, Query<&mut Collider>)>,
 ) -> ActionResult {
     match action.current {
@@ -580,7 +604,7 @@ fn active_player_system(
 }
 
 fn phase_text_system(
-    state: Res<State>,
+    state: Res<GamePhase>,
     info: Res<Info>,
     players: Query<&Player>,
     mut text: Query<&mut Text, With<PhaseText>>,
@@ -614,7 +638,7 @@ fn phase_text_system(
 
 fn setup_phase_system(
     mut queue: ResMut<ActionQueue>,
-    mut state: ResMut<State>,
+    mut state: ResMut<GamePhase>,
     mut info: ResMut<Info>,
     data: Res<Data>,
     mut players: Query<(Entity, &mut Player)>,
@@ -1007,7 +1031,7 @@ fn setup_phase_system(
 
 fn storm_phase_system(
     mut queue: ResMut<ActionQueue>,
-    mut state: ResMut<State>,
+    mut state: ResMut<GamePhase>,
     mut info: ResMut<Info>,
     mut treachery_cards: Query<(Entity, &mut Transform, &TreacheryCard)>,
     mut storm_query: Query<&mut Storm>,
@@ -1160,13 +1184,13 @@ pub enum StormSubPhase {
     MoveStorm,
 }
 
-pub struct State {
+pub struct GamePhase {
     pub phase: Phase,
 }
 
-impl Default for State {
-    fn default() -> Self {
-        State {
+impl FromResources for GamePhase {
+    fn from_resources(_: &Resources) -> Self {
+        GamePhase {
             phase: Phase::Setup {
                 subphase: SetupSubPhase::AtStart,
             },

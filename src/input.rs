@@ -8,7 +8,7 @@ use bevy::{
 use crate::{
     components::{Collider, Disorganized, LocationSector, Player, Prediction, Troop, Unique},
     data::{CameraNode, FactionPredictionCard, TurnPredictionCard},
-    lerper::{Lerp, LerpType, UITransform},
+    lerper::{Lerp, LerpType},
     multi,
     phase::{Action, ActionAggregation, ActionQueue, Context},
     resources::{Data, Info},
@@ -16,15 +16,33 @@ use crate::{
 };
 
 const STAGE: &str = "input";
+pub struct GameInputPlugin;
 
-pub struct InputPlugin;
-
-impl Plugin for InputPlugin {
+impl Plugin for GameInputPlugin {
     fn build(&self, app: &mut AppBuilder) {
-        app.add_stage(STAGE, SystemStage::parallel())
-            .add_system_to_stage(STAGE, camera_system.system())
-            .add_system_to_stage(STAGE, sector_context_system.system())
-            .add_system_to_stage(STAGE, prediction_context_system.system());
+        app.add_stage(STAGE, StateStage::<crate::Screen>::default())
+            .on_state_update(STAGE, crate::Screen::HostingGame, camera_system.system())
+            .on_state_update(
+                STAGE,
+                crate::Screen::HostingGame,
+                sector_context_system.system(),
+            )
+            .on_state_update(
+                STAGE,
+                crate::Screen::HostingGame,
+                prediction_context_system.system(),
+            )
+            .on_state_update(STAGE, crate::Screen::JoinedGame, camera_system.system())
+            .on_state_update(
+                STAGE,
+                crate::Screen::JoinedGame,
+                sector_context_system.system(),
+            )
+            .on_state_update(
+                STAGE,
+                crate::Screen::JoinedGame,
+                prediction_context_system.system(),
+            );
     }
 }
 
