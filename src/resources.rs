@@ -1,9 +1,6 @@
 use std::fs::File;
 
-use bevy::{
-    ecs::{Entity, FromResources},
-    math::Vec2,
-};
+use bevy::{ecs::Entity, math::Vec2};
 
 use crate::{data::*, phase::Context};
 
@@ -19,8 +16,8 @@ pub struct Data {
     pub ui_structure: UiStructure,
 }
 
-impl FromResources for Data {
-    fn from_resources(_resources: &bevy::ecs::Resources) -> Self {
+impl Default for Data {
+    fn default() -> Self {
         let locations = ron::de::from_reader(File::open("data/locations.ron").unwrap()).unwrap();
         let leaders = ron::de::from_reader(File::open("data/leaders.ron").unwrap()).unwrap();
         let treachery_cards =
@@ -59,8 +56,8 @@ pub struct Info {
     pub context: Context,
 }
 
-impl FromResources for Info {
-    fn from_resources(_: &bevy::ecs::Resources) -> Self {
+impl Default for Info {
+    fn default() -> Self {
         Info {
             turn: 0,
             factions_in_play: Vec::new(),
@@ -74,6 +71,16 @@ impl FromResources for Info {
 }
 
 impl Info {
+    pub fn reset(&mut self) {
+        self.turn = 0;
+        self.factions_in_play = Vec::new();
+        self.current_turn = 0;
+        self.active_player = None;
+        self.play_order = Vec::new();
+        self.default_clickables = Vec::new();
+        self.context = Context::None;
+    }
+
     pub fn get_active_player(&self) -> Entity {
         self.active_player
             .unwrap_or(self.play_order[self.current_turn])

@@ -13,12 +13,17 @@ use components::*;
 use data::*;
 use input::GameInputPlugin;
 use lerper::LerpPlugin;
+use maplit::hashmap;
 use menu::MenuPlugin;
 use phase::*;
 use resources::*;
 use util::divide_spice;
 
-use bevy::{prelude::*, render::camera::PerspectiveProjection};
+use bevy::{
+    asset::{Asset, AssetDynamic, LoadState},
+    prelude::*,
+    render::camera::PerspectiveProjection,
+};
 
 use ncollide3d::{
     na::{Point3, Vector3},
@@ -28,19 +33,27 @@ use ncollide3d::{
 
 use rand::seq::SliceRandom;
 
-use std::f32::consts::PI;
+use std::{collections::HashMap, f32::consts::PI};
 
 #[derive(Copy, Clone, Debug)]
-enum Screen {
+pub enum Screen {
     MainMenu,
     Server,
     Join,
+    Loading,
     HostingGame,
     JoinedGame,
 }
 
+struct ScreenEntity;
+
 const STATE_CHANGE_STAGE: &str = "state_change";
 const RESPONSE_STAGE: &str = "response";
+
+#[derive(Default)]
+struct LoadingAssets {
+    assets: Vec<HandleUntyped>,
+}
 
 fn main() {
     let mut app = App::build();
@@ -48,20 +61,136 @@ fn main() {
         .add_resource(ClearColor(Color::BLACK))
         .init_resource::<Data>()
         .init_resource::<Info>()
-        .init_resource::<GamePhase>();
+        .init_resource::<LoadingAssets>();
 
     app.add_resource(State::new(Screen::MainMenu));
 
+    app.add_stage_after(
+        stage::UPDATE,
+        STATE_CHANGE_STAGE,
+        StateStage::<Screen>::default(),
+    )
+    .add_stage_after(
+        STATE_CHANGE_STAGE,
+        RESPONSE_STAGE,
+        StateStage::<Screen>::default(),
+    );
+
     app.add_plugins(DefaultPlugins)
         .add_plugin(GameInputPlugin)
-        //.add_plugin(PhasePlugin)
+        .add_plugin(PhasePlugin)
         .add_plugin(LerpPlugin)
         .add_plugin(MenuPlugin);
 
     app.add_stage("end", SystemStage::parallel())
-        .add_system_to_stage("end", propagate_visibility.system());
+        .add_system_to_stage("end", propagate_visibility.system())
+        .add_startup_system(init_camera.system());
+
+    app.on_state_enter(RESPONSE_STAGE, Screen::Loading, init_loading_game.system())
+        .on_state_update(STATE_CHANGE_STAGE, Screen::Loading, load_game.system())
+        .on_state_exit(RESPONSE_STAGE, Screen::Loading, tear_down.system());
+
+    app.on_state_enter(
+        RESPONSE_STAGE,
+        Screen::HostingGame,
+        init_hosted_game.system(),
+    )
+    .on_state_exit(RESPONSE_STAGE, Screen::HostingGame, tear_down.system())
+    .on_state_exit(RESPONSE_STAGE, Screen::HostingGame, reset_game.system());
 
     app.run();
+}
+
+fn init_camera(commands: &mut Commands) {
+    commands
+        .spawn(Camera3dBundle {
+            perspective_projection: PerspectiveProjection {
+                near: 0.01,
+                far: 100.0,
+                ..Default::default()
+            },
+            transform: Transform::from_translation(Vec3::new(0.0, 2.5, 2.0))
+                .looking_at(Vec3::zero(), Vec3::unit_y())
+                * Transform::from_translation(Vec3::new(0.0, -0.4, 0.0)),
+            ..Default::default()
+        })
+        .spawn(CameraUiBundle::default());
+}
+
+struct LoadingBar;
+
+fn init_loading_game(
+    commands: &mut Commands,
+    asset_server: Res<AssetServer>,
+    mut loading_assets: ResMut<LoadingAssets>,
+    mut colors: ResMut<Assets<ColorMaterial>>,
+) {
+    loading_assets.assets = asset_server.load_folder(".").unwrap();
+
+    commands
+        .spawn(NodeBundle {
+            style: Style {
+                size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
+                margin: Rect::all(Val::Auto),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .with(ScreenEntity)
+        .with_children(|parent| {
+            parent
+                .spawn(NodeBundle {
+                    style: Style {
+                        size: Size::new(Val::Percent(50.0), Val::Percent(10.0)),
+                        margin: Rect::all(Val::Auto),
+                        border: Rect::all(Val::Px(5.0)),
+                        ..Default::default()
+                    },
+                    material: colors.add(Color::BLACK.into()),
+                    ..Default::default()
+                })
+                .with_children(|parent| {
+                    parent
+                        .spawn(NodeBundle {
+                            style: Style {
+                                size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
+                                ..Default::default()
+                            },
+                            material: colors.add(Color::RED.into()),
+                            ..Default::default()
+                        })
+                        .with(LoadingBar);
+                });
+        });
+}
+
+fn load_game(
+    mut state: ResMut<State<Screen>>,
+    asset_server: Res<AssetServer>,
+    loading_assets: Res<LoadingAssets>,
+    mut loading_bar: Query<&mut Style, With<LoadingBar>>,
+) {
+    let mut counts = HashMap::new();
+    for handle in loading_assets.assets.iter() {
+        match asset_server.get_load_state(handle) {
+            LoadState::NotLoaded => *counts.entry("loading").or_insert(0) += 1,
+            LoadState::Loading => *counts.entry("loading").or_insert(0) += 1,
+            LoadState::Loaded => *counts.entry("loaded").or_insert(0) += 1,
+            LoadState::Failed => *counts.entry("failed").or_insert(0) += 1,
+        }
+    }
+    loading_bar.iter_mut().next().map(|mut bar| {
+        bar.size.width = Val::Percent(
+            100.0
+                * (*counts.entry("loaded").or_insert(0) as f32
+                    / loading_assets.assets.len() as f32),
+        );
+    });
+    if *counts.entry("loading").or_insert(0) == 0 {
+        state.set_next(Screen::HostingGame).unwrap();
+    }
 }
 
 fn init_hosted_game(
@@ -72,13 +201,13 @@ fn init_hosted_game(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut colors: ResMut<Assets<ColorMaterial>>,
 ) {
-    asset_server.load_folder(".").unwrap();
     // Board
     info.default_clickables.push(
         commands
             .spawn(ColliderBundle::new(ShapeHandle::new(Cuboid::new(
                 Vector3::new(1.0, 0.007, 1.1),
             ))))
+            .with(ScreenEntity)
             .with(data.camera_nodes.board)
             .with_children(|parent| {
                 parent.spawn_scene(asset_server.get_handle("board.gltf"));
@@ -109,33 +238,37 @@ fn init_hosted_game(
             },
             ..Default::default()
         })
+        .with(ScreenEntity)
         .with(PhaseText);
 
     for location in data.locations.iter() {
-        commands.spawn((location.clone(),)).with_children(|parent| {
-            for (&sector, nodes) in location.sectors.iter() {
-                let vertices = nodes
-                    .vertices
-                    .iter()
-                    .map(|p| Point3::new(p.x, 0.01, -p.y))
-                    .collect();
-                let indices = nodes
-                    .indices
-                    .chunks_exact(3)
-                    .map(|chunk| {
-                        Point3::new(chunk[0] as usize, chunk[1] as usize, chunk[2] as usize)
-                    })
-                    .collect();
-                parent
-                    .spawn(ColliderBundle::new(ShapeHandle::new(TriMesh::new(
-                        vertices, indices, None,
-                    ))))
-                    .with(LocationSector {
-                        location: location.clone(),
-                        sector,
-                    });
-            }
-        });
+        commands
+            .spawn((location.clone(),))
+            .with(ScreenEntity)
+            .with_children(|parent| {
+                for (&sector, nodes) in location.sectors.iter() {
+                    let vertices = nodes
+                        .vertices
+                        .iter()
+                        .map(|p| Point3::new(p.x, 0.01, -p.y))
+                        .collect();
+                    let indices = nodes
+                        .indices
+                        .chunks_exact(3)
+                        .map(|chunk| {
+                            Point3::new(chunk[0] as usize, chunk[1] as usize, chunk[2] as usize)
+                        })
+                        .collect();
+                    parent
+                        .spawn(ColliderBundle::new(ShapeHandle::new(TriMesh::new(
+                            vertices, indices, None,
+                        ))))
+                        .with(LocationSector {
+                            location: location.clone(),
+                            sector,
+                        });
+                }
+            });
 
         if let Some(pos) = location.spice {
             commands.with(SpiceNode::new(pos));
@@ -148,7 +281,9 @@ fn init_hosted_game(
             transform: Transform::from_translation(Vec3::new(10.0, 10.0, 10.0)),
             ..Default::default()
         })
-        .spawn((Storm::default(),));
+        .with(ScreenEntity);
+
+    commands.spawn((Storm::default(),)).with(ScreenEntity);
 
     let mut rng = rand::thread_rng();
 
@@ -237,6 +372,7 @@ fn init_hosted_game(
                     }),
                     ..Default::default()
                 })
+                .with(ScreenEntity)
                 .with_children(|parent| {
                     parent
                         .spawn(ImageBundle {
@@ -279,6 +415,7 @@ fn init_hosted_game(
                     ColliderBundle::new(shield_shape.clone())
                         .with_transform(Transform::from_translation(Vec3::new(0.0, 0.27, 1.34))),
                 )
+                .with(ScreenEntity)
                 .with(data.camera_nodes.shield)
                 .with_bundle(UniqueBundle::new(faction))
                 .with_children(|parent| {
@@ -301,6 +438,7 @@ fn init_hosted_game(
             });
             commands
                 .spawn(ColliderBundle::new(faction_prediction_shape.clone()))
+                .with(ScreenEntity)
                 .with_bundle(UniqueBundle::new(Faction::BeneGesserit))
                 .with(FactionPredictionCard { faction })
                 .with_children(|parent| {
@@ -335,6 +473,7 @@ fn init_hosted_game(
                             Transform::from_translation(data.token_nodes.leaders[i]),
                         ),
                     )
+                    .with(ScreenEntity)
                     .with_bundle(UniqueBundle::new(faction))
                     .with_children(|parent| {
                         parent.spawn(PbrBundle {
@@ -361,6 +500,7 @@ fn init_hosted_game(
                             ),
                         ),
                     )
+                    .with(ScreenEntity)
                     .with_bundle(UniqueBundle::new(faction))
                     .with(Troop {
                         value: 1,
@@ -419,6 +559,7 @@ fn init_hosted_game(
                             ),
                         ),
                     )
+                    .with(ScreenEntity)
                     .with_bundle(UniqueBundle::new(faction))
                     .with(Spice { value })
                     .with_children(|parent| {
@@ -430,7 +571,9 @@ fn init_hosted_game(
                     });
             }
 
-            commands.spawn((Player::new(faction, &data.leaders),));
+            commands
+                .spawn((Player::new(faction, &data.leaders),))
+                .with(ScreenEntity);
 
             if faction == Faction::BeneGesserit {
                 commands.with(Prediction {
@@ -454,6 +597,7 @@ fn init_hosted_game(
         });
         commands
             .spawn(ColliderBundle::new(turn_prediction_shape.clone()))
+            .with(ScreenEntity)
             .with_bundle(UniqueBundle::new(Faction::BeneGesserit))
             .with(TurnPredictionCard { turn })
             .with_children(|parent| {
@@ -469,8 +613,6 @@ fn init_hosted_game(
                 });
             });
     });
-
-    commands.spawn(());
 
     let treachery_back_texture = asset_server.get_handle("treachery/treachery_back.png");
     let treachery_back_material = materials.add(StandardMaterial {
@@ -493,6 +635,7 @@ fn init_hosted_game(
                     * Transform::from_rotation(Quat::from_rotation_z(PI)),
                 GlobalTransform::default(),
             ))
+            .with(ScreenEntity)
             .with_children(|parent| {
                 parent.spawn(PbrBundle {
                     mesh: card_face.clone(),
@@ -530,6 +673,7 @@ fn init_hosted_game(
                     * Transform::from_rotation(Quat::from_rotation_z(PI)),
                 GlobalTransform::default(),
             ))
+            .with(ScreenEntity)
             .with_children(|parent| {
                 parent.spawn(PbrBundle {
                     mesh: card_face.clone(),
@@ -565,6 +709,7 @@ fn init_hosted_game(
                     * Transform::from_rotation(Quat::from_rotation_z(PI)),
                 GlobalTransform::default(),
             ))
+            .with(ScreenEntity)
             .with_children(|parent| {
                 parent.spawn(PbrBundle {
                     mesh: card_face.clone(),
@@ -600,6 +745,7 @@ fn init_hosted_game(
                     * Transform::from_rotation(Quat::from_rotation_z(PI)),
                 GlobalTransform::default(),
             ))
+            .with(ScreenEntity)
             .with_children(|parent| {
                 parent.spawn(PbrBundle {
                     mesh: card_face.clone(),
@@ -622,6 +768,7 @@ fn init_hosted_game(
                 ColliderBundle::new(deck_shape.clone())
                     .with_transform(Transform::from_translation(data.camera_nodes.treachery.at)),
             )
+            .with(ScreenEntity)
             .with(data.camera_nodes.treachery)
             .current_entity()
             .unwrap(),
@@ -633,6 +780,7 @@ fn init_hosted_game(
                 ColliderBundle::new(deck_shape.clone())
                     .with_transform(Transform::from_translation(data.camera_nodes.traitor.at)),
             )
+            .with(ScreenEntity)
             .with(data.camera_nodes.traitor)
             .current_entity()
             .unwrap(),
@@ -644,6 +792,7 @@ fn init_hosted_game(
                 ColliderBundle::new(deck_shape.clone())
                     .with_transform(Transform::from_translation(data.camera_nodes.spice.at)),
             )
+            .with(ScreenEntity)
             .with(data.camera_nodes.spice)
             .current_entity()
             .unwrap(),
@@ -655,6 +804,7 @@ fn init_hosted_game(
                 ColliderBundle::new(deck_shape)
                     .with_transform(Transform::from_translation(data.camera_nodes.storm.at)),
             )
+            .with(ScreenEntity)
             .with(data.camera_nodes.storm)
             .current_entity()
             .unwrap(),
@@ -674,4 +824,14 @@ fn propagate_visibility(
             }
         }
     }
+}
+
+fn tear_down(commands: &mut Commands, screen_entities: Query<Entity, With<ScreenEntity>>) {
+    for entity in screen_entities.iter() {
+        commands.despawn_recursive(entity);
+    }
+}
+
+fn reset_game(mut info: ResMut<Info>) {
+    info.reset();
 }

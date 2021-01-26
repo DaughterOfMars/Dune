@@ -9,6 +9,7 @@ use crate::{
     data::{TraitorCard, TurnPredictionCard},
     lerper::{Lerp, LerpType, UITransform},
     util::{hand_positions, shuffle_deck},
+    Screen, RESPONSE_STAGE, STATE_CHANGE_STAGE,
 };
 use bevy::{prelude::*, render::camera::Camera};
 use rand::{prelude::SliceRandom, Rng};
@@ -33,45 +34,48 @@ macro_rules! single {
     };
 }
 
-const STAGE: &str = "phase";
-
 pub struct PhasePlugin;
 
 impl Plugin for PhasePlugin {
     fn build(&self, app: &mut AppBuilder) {
-        app.add_stage(STAGE, StateStage::<crate::Screen>::default())
-            .add_resource(ActionQueue::default())
-            .on_state_update(STAGE, crate::Screen::HostingGame, action_system.system())
+        app.add_resource(ActionQueue::default())
+            .init_resource::<GamePhase>()
             .on_state_update(
-                STAGE,
+                STATE_CHANGE_STAGE,
+                crate::Screen::HostingGame,
+                action_system.system(),
+            )
+            .on_state_update(
+                STATE_CHANGE_STAGE,
                 crate::Screen::HostingGame,
                 phase_text_system.system(),
             )
             .on_state_update(
-                STAGE,
+                STATE_CHANGE_STAGE,
                 crate::Screen::HostingGame,
                 public_troop_system.system(),
             )
             .on_state_update(
-                STAGE,
+                STATE_CHANGE_STAGE,
                 crate::Screen::HostingGame,
                 active_player_system.system(),
             )
             .on_state_update(
-                STAGE,
+                STATE_CHANGE_STAGE,
                 crate::Screen::HostingGame,
                 stack_troops_system.system(),
             )
             .on_state_update(
-                STAGE,
+                STATE_CHANGE_STAGE,
                 crate::Screen::HostingGame,
                 setup_phase_system.system(),
             )
             .on_state_update(
-                STAGE,
+                STATE_CHANGE_STAGE,
                 crate::Screen::HostingGame,
                 storm_phase_system.system(),
-            );
+            )
+            .on_state_exit(RESPONSE_STAGE, Screen::HostingGame, reset.system());
     }
 }
 
@@ -330,6 +334,10 @@ impl ActionQueue {
             self.0.push_front(element);
         }
     }
+
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
 }
 
 impl std::fmt::Display for ActionQueue {
@@ -353,7 +361,7 @@ pub fn action_system(
     commands: &mut Commands,
     time: Res<Time>,
     mut info: ResMut<Info>,
-    mut state: ResMut<GamePhase>,
+    mut phase: ResMut<GamePhase>,
     mut queue: ResMut<ActionQueue>,
     mut queries: QuerySet<(Query<&mut Lerp>, Query<&Player>, Query<&mut Collider>)>,
 ) {
@@ -376,7 +384,7 @@ pub fn action_system(
                         action,
                         &time,
                         &mut info,
-                        &mut state,
+                        &mut phase,
                         &mut queries,
                     ) {
                         ActionResult::None => (),
@@ -399,7 +407,7 @@ pub fn action_system(
                             &mut action,
                             &time,
                             &mut info,
-                            &mut state,
+                            &mut phase,
                             &mut queries,
                         ) {
                             ActionResult::None => new_actions.push(action),
@@ -1188,12 +1196,19 @@ pub struct GamePhase {
     pub phase: Phase,
 }
 
-impl FromResources for GamePhase {
-    fn from_resources(_: &Resources) -> Self {
+impl Default for GamePhase {
+    fn default() -> Self {
         GamePhase {
             phase: Phase::Setup {
-                subphase: SetupSubPhase::AtStart,
+                subphase: SetupSubPhase::ChooseFactions,
             },
         }
     }
+}
+
+fn reset(mut phase: ResMut<GamePhase>, mut queue: ResMut<ActionQueue>) {
+    phase.phase = Phase::Setup {
+        subphase: SetupSubPhase::ChooseFactions,
+    };
+    queue.clear();
 }

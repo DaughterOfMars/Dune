@@ -13,36 +13,55 @@ use crate::{
     phase::{Action, ActionAggregation, ActionQueue, Context},
     resources::{Data, Info},
     util::{closest, closest_mut, MutRayCastResult, RayCastResult},
+    Screen, STATE_CHANGE_STAGE,
 };
 
-const STAGE: &str = "input";
 pub struct GameInputPlugin;
 
 impl Plugin for GameInputPlugin {
     fn build(&self, app: &mut AppBuilder) {
-        app.add_stage(STAGE, StateStage::<crate::Screen>::default())
-            .on_state_update(STAGE, crate::Screen::HostingGame, camera_system.system())
-            .on_state_update(
-                STAGE,
-                crate::Screen::HostingGame,
-                sector_context_system.system(),
-            )
-            .on_state_update(
-                STAGE,
-                crate::Screen::HostingGame,
-                prediction_context_system.system(),
-            )
-            .on_state_update(STAGE, crate::Screen::JoinedGame, camera_system.system())
-            .on_state_update(
-                STAGE,
-                crate::Screen::JoinedGame,
-                sector_context_system.system(),
-            )
-            .on_state_update(
-                STAGE,
-                crate::Screen::JoinedGame,
-                prediction_context_system.system(),
-            );
+        app.on_state_update(
+            STATE_CHANGE_STAGE,
+            Screen::HostingGame,
+            camera_system.system(),
+        )
+        .on_state_update(
+            STATE_CHANGE_STAGE,
+            Screen::HostingGame,
+            sector_context_system.system(),
+        )
+        .on_state_update(
+            STATE_CHANGE_STAGE,
+            Screen::HostingGame,
+            prediction_context_system.system(),
+        )
+        .on_state_update(
+            STATE_CHANGE_STAGE,
+            Screen::JoinedGame,
+            camera_system.system(),
+        )
+        .on_state_update(
+            STATE_CHANGE_STAGE,
+            Screen::JoinedGame,
+            sector_context_system.system(),
+        )
+        .on_state_update(
+            STATE_CHANGE_STAGE,
+            Screen::JoinedGame,
+            prediction_context_system.system(),
+        );
+
+        app.on_state_update(
+            STATE_CHANGE_STAGE,
+            Screen::HostingGame,
+            debug_restart_system.system(),
+        );
+    }
+}
+
+pub fn debug_restart_system(mut state: ResMut<State<Screen>>, keyboard_input: Res<Input<KeyCode>>) {
+    if keyboard_input.just_pressed(KeyCode::F1) {
+        state.overwrite_next(Screen::MainMenu).unwrap();
     }
 }
 

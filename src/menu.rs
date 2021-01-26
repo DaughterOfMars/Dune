@@ -1,37 +1,30 @@
-use bevy::{prelude::*, render::camera::PerspectiveProjection};
+use bevy::prelude::*;
 
-use crate::{Screen, RESPONSE_STAGE, STATE_CHANGE_STAGE};
-
+use crate::{tear_down, Screen, ScreenEntity, RESPONSE_STAGE, STATE_CHANGE_STAGE};
 pub struct MenuPlugin;
 
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut bevy::prelude::AppBuilder) {
-        app.add_startup_system(init_camera.system())
-            .add_startup_system(init_main_menu.system())
-            .add_stage_after(
-                stage::UPDATE,
-                STATE_CHANGE_STAGE,
-                StateStage::<Screen>::default(),
-            )
-            .add_stage_after(
-                STATE_CHANGE_STAGE,
-                RESPONSE_STAGE,
-                StateStage::<Screen>::default(),
-            )
+        app.add_startup_system(init_main_menu.system())
             .init_resource::<ButtonMaterials>()
             .on_state_enter(RESPONSE_STAGE, Screen::MainMenu, init_main_menu.system())
             .on_state_exit(RESPONSE_STAGE, Screen::MainMenu, tear_down.system())
+            .on_state_enter(RESPONSE_STAGE, Screen::Server, init_server_menu.system())
+            .on_state_exit(RESPONSE_STAGE, Screen::Server, tear_down.system())
+            .on_state_enter(RESPONSE_STAGE, Screen::Join, init_join_menu.system())
+            .on_state_exit(RESPONSE_STAGE, Screen::Join, tear_down.system())
             .on_state_update(STATE_CHANGE_STAGE, Screen::MainMenu, button_system.system())
             .on_state_update(STATE_CHANGE_STAGE, Screen::Join, button_system.system())
             .on_state_update(STATE_CHANGE_STAGE, Screen::Server, button_system.system());
     }
 }
 
-struct MenuEntity;
-
 enum ButtonActionType {
     HostGame,
     JoinGame,
+    StartGame,
+    GoBack,
+    ConnectToServer,
 }
 
 struct ButtonAction {
@@ -56,7 +49,7 @@ impl FromResources for ButtonMaterials {
 }
 
 fn button_system(
-    mut state: ResMut<State<crate::Screen>>,
+    mut state: ResMut<State<Screen>>,
     button_materials: Res<ButtonMaterials>,
     mut interactions: Query<
         (&Interaction, &mut Handle<ColorMaterial>, &ButtonAction),
@@ -69,10 +62,19 @@ fn button_system(
                 *material = button_materials.pressed.clone();
                 match action.action_type {
                     ButtonActionType::HostGame => {
-                        state.set_next(crate::Screen::Server).unwrap();
+                        state.set_next(Screen::Server).unwrap();
                     }
                     ButtonActionType::JoinGame => {
-                        state.set_next(crate::Screen::Join).unwrap();
+                        state.set_next(Screen::Join).unwrap();
+                    }
+                    ButtonActionType::StartGame => {
+                        state.set_next(Screen::Loading).unwrap();
+                    }
+                    ButtonActionType::GoBack => {
+                        state.set_next(Screen::MainMenu).unwrap();
+                    }
+                    ButtonActionType::ConnectToServer => {
+                        // Connect to server
                     }
                 }
             }
@@ -82,29 +84,12 @@ fn button_system(
     }
 }
 
-fn init_camera(commands: &mut Commands) {
-    commands
-        .spawn(Camera3dBundle {
-            perspective_projection: PerspectiveProjection {
-                near: 0.01,
-                far: 100.0,
-                ..Default::default()
-            },
-            transform: Transform::from_translation(Vec3::new(0.0, 2.5, 2.0))
-                .looking_at(Vec3::zero(), Vec3::unit_y())
-                * Transform::from_translation(Vec3::new(0.0, -0.4, 0.0)),
-            ..Default::default()
-        })
-        .spawn(CameraUiBundle::default());
-}
-
 fn init_main_menu(
     commands: &mut Commands,
     asset_server: Res<AssetServer>,
     button_materials: Res<ButtonMaterials>,
 ) {
     commands
-        .spawn(CameraUiBundle::default())
         .spawn(NodeBundle {
             style: Style {
                 size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
@@ -115,7 +100,7 @@ fn init_main_menu(
             },
             ..Default::default()
         })
-        .with(MenuEntity)
+        .with(ScreenEntity)
         .with_children(|parent| {
             parent
                 .spawn(ButtonBundle {
@@ -175,8 +160,179 @@ fn init_main_menu(
         });
 }
 
-fn tear_down(commands: &mut Commands, menu_entities: Query<Entity, With<MenuEntity>>) {
-    for entity in menu_entities.iter() {
-        commands.despawn_recursive(entity);
-    }
+fn init_server_menu(
+    commands: &mut Commands,
+    asset_server: Res<AssetServer>,
+    button_materials: Res<ButtonMaterials>,
+) {
+    commands
+        .spawn(NodeBundle {
+            style: Style {
+                size: Size::new(Val::Percent(50.0), Val::Percent(100.0)),
+                margin: Rect::all(Val::Auto),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .with(ScreenEntity)
+        .with_children(|parent| {
+            parent.spawn(TextBundle {
+                text: Text {
+                    font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                    value: "Joined Users:".to_string(),
+                    style: TextStyle {
+                        font_size: 20.0,
+                        color: Color::ANTIQUE_WHITE,
+                        ..Default::default()
+                    },
+                },
+                ..Default::default()
+            });
+        })
+        .spawn(NodeBundle {
+            style: Style {
+                size: Size::new(Val::Percent(50.0), Val::Percent(100.0)),
+                margin: Rect::all(Val::Auto),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .with(ScreenEntity)
+        .with_children(|parent| {
+            parent
+                .spawn(ButtonBundle {
+                    style: Style {
+                        size: Size::new(Val::Percent(10.0), Val::Percent(6.0)),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..Default::default()
+                    },
+                    material: button_materials.normal.clone(),
+                    ..Default::default()
+                })
+                .with(ButtonAction {
+                    action_type: ButtonActionType::StartGame,
+                })
+                .with_children(|parent| {
+                    parent.spawn(TextBundle {
+                        text: Text {
+                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                            value: "Start Game".to_string(),
+                            style: TextStyle {
+                                font_size: 20.0,
+                                color: Color::ANTIQUE_WHITE,
+                                ..Default::default()
+                            },
+                        },
+                        ..Default::default()
+                    });
+                })
+                .spawn(ButtonBundle {
+                    style: Style {
+                        size: Size::new(Val::Percent(10.0), Val::Percent(6.0)),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..Default::default()
+                    },
+                    material: button_materials.normal.clone(),
+                    ..Default::default()
+                })
+                .with(ButtonAction {
+                    action_type: ButtonActionType::GoBack,
+                })
+                .with_children(|parent| {
+                    parent.spawn(TextBundle {
+                        text: Text {
+                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                            value: "Back".to_string(),
+                            style: TextStyle {
+                                font_size: 20.0,
+                                color: Color::ANTIQUE_WHITE,
+                                ..Default::default()
+                            },
+                        },
+                        ..Default::default()
+                    });
+                });
+        });
+}
+
+fn init_join_menu(
+    commands: &mut Commands,
+    asset_server: Res<AssetServer>,
+    button_materials: Res<ButtonMaterials>,
+) {
+    commands
+        .spawn(NodeBundle {
+            style: Style {
+                size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
+                margin: Rect::all(Val::Auto),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .with(ScreenEntity)
+        .with_children(|parent| {
+            parent
+                .spawn(ButtonBundle {
+                    style: Style {
+                        size: Size::new(Val::Percent(10.0), Val::Percent(6.0)),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..Default::default()
+                    },
+                    material: button_materials.normal.clone(),
+                    ..Default::default()
+                })
+                .with(ButtonAction {
+                    action_type: ButtonActionType::ConnectToServer,
+                })
+                .with_children(|parent| {
+                    parent.spawn(TextBundle {
+                        text: Text {
+                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                            value: "Join Game".to_string(),
+                            style: TextStyle {
+                                font_size: 20.0,
+                                color: Color::ANTIQUE_WHITE,
+                                ..Default::default()
+                            },
+                        },
+                        ..Default::default()
+                    });
+                })
+                .spawn(ButtonBundle {
+                    style: Style {
+                        size: Size::new(Val::Percent(10.0), Val::Percent(6.0)),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..Default::default()
+                    },
+                    material: button_materials.normal.clone(),
+                    ..Default::default()
+                })
+                .with(ButtonAction {
+                    action_type: ButtonActionType::GoBack,
+                })
+                .with_children(|parent| {
+                    parent.spawn(TextBundle {
+                        text: Text {
+                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                            value: "Back".to_string(),
+                            style: TextStyle {
+                                font_size: 20.0,
+                                color: Color::ANTIQUE_WHITE,
+                                ..Default::default()
+                            },
+                        },
+                        ..Default::default()
+                    });
+                });
+        });
 }

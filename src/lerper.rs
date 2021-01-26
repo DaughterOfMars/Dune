@@ -9,7 +9,7 @@ use crate::{data::CameraNode, util::screen_to_world};
 
 const UI_SCALE: f32 = 0.01;
 const UI_Z: f32 = 0.1;
-const SPEED_MOD: f32 = 0.5;
+const SPEED_MOD: f32 = 1.0;
 
 #[derive(Copy, Clone)]
 pub enum LerpType {
