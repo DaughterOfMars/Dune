@@ -5,6 +5,7 @@ mod data;
 mod input;
 mod lerper;
 mod menu;
+mod network;
 mod phase;
 mod stack;
 mod util;
@@ -13,17 +14,16 @@ use components::*;
 use data::*;
 use input::GameInputPlugin;
 use lerper::LerpPlugin;
-use maplit::hashmap;
 use menu::MenuPlugin;
+use network::*;
 use phase::*;
 use resources::*;
 use util::divide_spice;
 
-use bevy::{
-    asset::{Asset, AssetDynamic, LoadState},
-    prelude::*,
-    render::camera::PerspectiveProjection,
-};
+use bevy::{asset::LoadState, prelude::*, render::camera::PerspectiveProjection};
+
+use bytecheck::CheckBytes;
+use rkyv::{check_archive, Archive, ArchiveWriter, Seek, Unarchive, Write};
 
 use ncollide3d::{
     na::{Point3, Vector3},
@@ -33,7 +33,7 @@ use ncollide3d::{
 
 use rand::seq::SliceRandom;
 
-use std::{collections::HashMap, f32::consts::PI};
+use std::{collections::HashMap, f32::consts::PI, io::Cursor};
 
 #[derive(Copy, Clone, Debug)]
 pub enum Screen {
@@ -46,6 +46,29 @@ pub enum Screen {
 }
 
 struct ScreenEntity;
+
+#[derive(Archive, Unarchive, PartialEq, Clone, Debug)]
+#[archive(derive(CheckBytes))]
+pub enum MessageData {
+    Load,
+    Loaded,
+    ServerInfo { players: Vec<String> },
+}
+
+impl MessageData {
+    fn into_bytes(&self) -> Vec<u8> {
+        let mut writer = ArchiveWriter::new(Cursor::new(Vec::new()));
+        writer
+            .archive_root(self)
+            .expect("Failed to serialize message data!");
+        writer.into_inner().into_inner()
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Self {
+        let archived = check_archive::<Self>(bytes, 0).expect("Failed to validate message data!");
+        archived.unarchive()
+    }
+}
 
 const STATE_CHANGE_STAGE: &str = "state_change";
 const RESPONSE_STAGE: &str = "response";
@@ -80,7 +103,8 @@ fn main() {
         .add_plugin(GameInputPlugin)
         .add_plugin(PhasePlugin)
         .add_plugin(LerpPlugin)
-        .add_plugin(MenuPlugin);
+        .add_plugin(MenuPlugin)
+        .add_plugin(NetworkPlugin);
 
     app.add_stage("end", SystemStage::parallel())
         .add_system_to_stage("end", propagate_visibility.system())
@@ -90,13 +114,15 @@ fn main() {
         .on_state_update(STATE_CHANGE_STAGE, Screen::Loading, load_game.system())
         .on_state_exit(RESPONSE_STAGE, Screen::Loading, tear_down.system());
 
-    app.on_state_enter(
-        RESPONSE_STAGE,
-        Screen::HostingGame,
-        init_hosted_game.system(),
-    )
-    .on_state_exit(RESPONSE_STAGE, Screen::HostingGame, tear_down.system())
-    .on_state_exit(RESPONSE_STAGE, Screen::HostingGame, reset_game.system());
+    app.on_state_enter(RESPONSE_STAGE, Screen::HostingGame, init_game.system())
+        .on_state_exit(RESPONSE_STAGE, Screen::HostingGame, tear_down.system())
+        .on_state_exit(RESPONSE_STAGE, Screen::HostingGame, reset_game.system());
+
+    app.on_state_update(
+        STATE_CHANGE_STAGE,
+        Screen::Server,
+        process_network_messages.system(),
+    );
 
     app.run();
 }
@@ -193,13 +219,14 @@ fn load_game(
     }
 }
 
-fn init_hosted_game(
+fn init_game(
     commands: &mut Commands,
     data: Res<Data>,
     mut info: ResMut<Info>,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut colors: ResMut<Assets<ColorMaterial>>,
+    network: Res<Network>,
 ) {
     // Board
     info.default_clickables.push(
@@ -809,6 +836,35 @@ fn init_hosted_game(
             .current_entity()
             .unwrap(),
     );
+}
+
+fn process_network_messages(
+    mut info: ResMut<Info>,
+    mut state: ResMut<State<Screen>>,
+    network: Res<Network>,
+    mut server: Query<&mut Server>,
+    mut client: Query<&mut Client>,
+) {
+    match network.network_type {
+        NetworkType::Client => {
+            if let Some(mut client) = client.iter_mut().next() {
+                for data in client.messages.drain(..) {
+                    let message = MessageData::from_bytes(&data[..]);
+                    match message {
+                        MessageData::Load => {
+                            state.overwrite_next(Screen::Loading).unwrap();
+                        }
+                        MessageData::ServerInfo { players } => {
+                            info.players = players;
+                        }
+                        _ => (),
+                    }
+                }
+            }
+        }
+        NetworkType::Server => if let Some(mut server) = server.iter_mut().next() {},
+        NetworkType::None => (),
+    }
 }
 
 fn propagate_visibility(

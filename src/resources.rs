@@ -48,6 +48,7 @@ impl Default for Data {
 
 pub struct Info {
     pub turn: i32,
+    pub players: Vec<String>,
     pub factions_in_play: Vec<Faction>,
     pub current_turn: usize,
     pub active_player: Option<Entity>,
@@ -60,6 +61,7 @@ impl Default for Info {
     fn default() -> Self {
         Info {
             turn: 0,
+            players: Vec::new(),
             factions_in_play: Vec::new(),
             current_turn: 0,
             active_player: None,
