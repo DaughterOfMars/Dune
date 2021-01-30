@@ -57,9 +57,9 @@ impl Default for Network {
 
 #[derive(PartialEq)]
 pub enum NetworkType {
-    None,
-    Client,
     Server,
+    Client,
+    None,
 }
 
 pub struct Server {

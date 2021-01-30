@@ -5,13 +5,18 @@ use std::{
 };
 
 use crate::{
-    components::{Collider, Disorganized, Troop, UniqueBundle},
+    components::{Collider, ColliderBundle, Disorganized, Prediction, Spice, Troop, UniqueBundle},
     data::{TraitorCard, TurnPredictionCard},
     lerper::{Lerp, LerpType, UITransform},
-    util::{hand_positions, shuffle_deck},
-    Screen, RESPONSE_STAGE, STATE_CHANGE_STAGE,
+    util::{divide_spice, hand_positions, shuffle_deck},
+    Screen, ScreenEntity, RESPONSE_STAGE, STATE_CHANGE_STAGE,
 };
 use bevy::{prelude::*, render::camera::Camera};
+use ncollide3d::{
+    na::Vector3,
+    shape::{ConvexHull, Cuboid, Cylinder, ShapeHandle},
+    transformation::ToTriMesh,
+};
 use rand::{prelude::SliceRandom, Rng};
 
 use crate::{
@@ -38,8 +43,7 @@ pub struct PhasePlugin;
 
 impl Plugin for PhasePlugin {
     fn build(&self, app: &mut AppBuilder) {
-        app.add_resource(ActionQueue::default())
-            .init_resource::<GamePhase>()
+        app.init_resource::<ActionQueue>()
             .on_state_update(
                 STATE_CHANGE_STAGE,
                 crate::Screen::HostingGame,
@@ -644,6 +648,331 @@ fn phase_text_system(
     }
 }
 
+fn init_factions(
+    commands: &mut Commands,
+    data: Res<Data>,
+    mut info: ResMut<Info>,
+    asset_server: Res<AssetServer>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut colors: ResMut<Assets<ColorMaterial>>,
+) {
+    let card_face = asset_server.get_handle("card.gltf#Mesh0/Primitive0");
+    let card_back = asset_server.get_handle("card.gltf#Mesh0/Primitive1");
+
+    let shield_face = asset_server.get_handle("shield.gltf#Mesh0/Primitive1");
+    let shield_back = asset_server.get_handle("shield.gltf#Mesh0/Primitive2");
+    let shield_shape = ShapeHandle::new(Cuboid::new(Vector3::new(0.525, 0.285, 0.06)));
+
+    let prediction_back_texture = asset_server.get_handle("treachery/treachery_back.png");
+    let prediction_back_material = materials.add(StandardMaterial {
+        albedo_texture: Some(prediction_back_texture),
+        ..Default::default()
+    });
+
+    let faction_prediction_shape =
+        ShapeHandle::new(Cuboid::new(Vector3::new(0.125, 0.0005, 0.18) * 0.01));
+    let turn_prediction_shape =
+        ShapeHandle::new(Cuboid::new(Vector3::new(0.125, 0.0005, 0.18) * 0.006));
+
+    let little_token = asset_server.get_handle("little_token.gltf#Mesh0/Primitive0");
+    let big_token = asset_server.get_handle("big_token.gltf#Mesh0/Primitive0");
+    let spice_token = asset_server.get_handle("spice_token.gltf#Mesh0/Primitive0");
+
+    let little_token_shape = ShapeHandle::new(
+        ConvexHull::try_from_points(&Cylinder::<f32>::new(0.0018, 0.03).to_trimesh(32).coords)
+            .unwrap(),
+    );
+    let big_token_shape = ShapeHandle::new(
+        ConvexHull::try_from_points(&Cylinder::<f32>::new(0.0035, 0.06).to_trimesh(32).coords)
+            .unwrap(),
+    );
+    let spice_token_shape = ShapeHandle::new(
+        ConvexHull::try_from_points(&Cylinder::<f32>::new(0.0018, 0.017).to_trimesh(32).coords)
+            .unwrap(),
+    );
+
+    let turn_tiles = data.ui_structure.get_turn_tiles();
+
+    info.play_order = info
+        .factions_in_play
+        .iter()
+        .enumerate()
+        .map(|(i, &faction)| {
+            let faction_code = match faction {
+                Faction::Atreides => "at",
+                Faction::Harkonnen => "hk",
+                Faction::Emperor => "em",
+                Faction::SpacingGuild => "sg",
+                Faction::Fremen => "fr",
+                Faction::BeneGesserit => "bg",
+            };
+
+            let logo_texture =
+                asset_server.get_handle(format!("tokens/{}_logo.png", faction_code).as_str());
+
+            commands
+                .spawn(NodeBundle {
+                    style: Style {
+                        position_type: PositionType::Absolute,
+                        position: turn_tiles[i].top_left(),
+                        size: turn_tiles[i].size(),
+                        align_items: AlignItems::FlexStart,
+                        padding: Rect {
+                            top: Val::Percent(1.0),
+                            bottom: Val::Percent(1.0),
+                            left: Val::Percent(1.0),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                    material: colors.add(if i % 2 == 0 {
+                        (Color::RED + Color::rgba_linear(0.0, 0.0, 0.0, -0.5)).into()
+                    } else {
+                        (Color::GREEN + Color::rgba_linear(0.0, 0.0, 0.0, -0.5)).into()
+                    }),
+                    ..Default::default()
+                })
+                .with(ScreenEntity)
+                .with_children(|parent| {
+                    parent
+                        .spawn(ImageBundle {
+                            style: Style {
+                                size: Size::new(Val::Px(20.0), Val::Px(20.0)),
+                                ..Default::default()
+                            },
+                            material: colors.add(logo_texture.into()),
+                            ..Default::default()
+                        })
+                        .spawn(TextBundle {
+                            text: Text {
+                                font: asset_server.get_handle("fonts/FiraSans-Bold.ttf"),
+                                value: faction.to_string(),
+                                style: TextStyle {
+                                    font_size: 20.0,
+                                    color: Color::ANTIQUE_WHITE,
+                                    ..Default::default()
+                                },
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        });
+                });
+
+            let shield_front_texture = asset_server
+                .get_handle(format!("shields/{}_shield_front.png", faction_code).as_str());
+            let shield_back_texture = asset_server
+                .get_handle(format!("shields/{}_shield_back.png", faction_code).as_str());
+            let shield_front_material = materials.add(StandardMaterial {
+                albedo_texture: Some(shield_front_texture),
+                ..Default::default()
+            });
+            let shield_back_material = materials.add(StandardMaterial {
+                albedo_texture: Some(shield_back_texture),
+                ..Default::default()
+            });
+            commands
+                .spawn(
+                    ColliderBundle::new(shield_shape.clone())
+                        .with_transform(Transform::from_translation(Vec3::new(0.0, 0.27, 1.34))),
+                )
+                .with(ScreenEntity)
+                .with(data.camera_nodes.shield)
+                .with_bundle(UniqueBundle::new(faction))
+                .with_children(|parent| {
+                    parent.spawn(PbrBundle {
+                        mesh: shield_face.clone(),
+                        material: shield_front_material,
+                        ..Default::default()
+                    });
+                    parent.spawn(PbrBundle {
+                        mesh: shield_back.clone(),
+                        material: shield_back_material,
+                        ..Default::default()
+                    });
+                });
+            let prediction_front_texture = asset_server
+                .get_handle(format!("predictions/prediction_{}.png", faction_code).as_str());
+            let prediction_front_material = materials.add(StandardMaterial {
+                albedo_texture: Some(prediction_front_texture),
+                ..Default::default()
+            });
+            commands
+                .spawn(ColliderBundle::new(faction_prediction_shape.clone()))
+                .with(ScreenEntity)
+                .with_bundle(UniqueBundle::new(Faction::BeneGesserit))
+                .with(FactionPredictionCard { faction })
+                .with_children(|parent| {
+                    parent.spawn(PbrBundle {
+                        mesh: card_face.clone(),
+                        material: prediction_front_material,
+                        ..Default::default()
+                    });
+                    parent.spawn(PbrBundle {
+                        mesh: card_back.clone(),
+                        material: prediction_back_material.clone(),
+                        ..Default::default()
+                    });
+                });
+
+            for (i, leader) in data
+                .leaders
+                .iter()
+                .filter(|l| l.faction == faction)
+                .enumerate()
+            {
+                let texture =
+                    asset_server.get_handle(format!("leaders/{}.png", leader.texture).as_str());
+                let material = materials.add(StandardMaterial {
+                    albedo_texture: Some(texture),
+                    ..Default::default()
+                });
+
+                commands
+                    .spawn(
+                        ColliderBundle::new(big_token_shape.clone()).with_transform(
+                            Transform::from_translation(data.token_nodes.leaders[i]),
+                        ),
+                    )
+                    .with(ScreenEntity)
+                    .with_bundle(UniqueBundle::new(faction))
+                    .with_children(|parent| {
+                        parent.spawn(PbrBundle {
+                            mesh: big_token.clone(),
+                            material,
+                            ..Default::default()
+                        });
+                    });
+            }
+
+            let troop_texture =
+                asset_server.get_handle(format!("tokens/{}_troop.png", faction_code).as_str());
+            let troop_material = materials.add(StandardMaterial {
+                albedo_texture: Some(troop_texture),
+                ..Default::default()
+            });
+
+            for i in 0..20 {
+                commands
+                    .spawn(
+                        ColliderBundle::new(little_token_shape.clone()).with_transform(
+                            Transform::from_translation(
+                                data.token_nodes.fighters[0] + (i as f32 * 0.0036 * Vec3::unit_y()),
+                            ),
+                        ),
+                    )
+                    .with(ScreenEntity)
+                    .with_bundle(UniqueBundle::new(faction))
+                    .with(Troop {
+                        value: 1,
+                        location: None,
+                    })
+                    .with_children(|parent| {
+                        parent.spawn(PbrBundle {
+                            mesh: little_token.clone(),
+                            material: troop_material.clone(),
+                            ..Default::default()
+                        });
+                    });
+            }
+
+            let spice_1_texture = asset_server.get_handle("tokens/spice_1.png");
+            let spice_1_material = materials.add(StandardMaterial {
+                albedo_texture: Some(spice_1_texture),
+                ..Default::default()
+            });
+            let spice_2_texture = asset_server.get_handle("tokens/spice_2.png");
+            let spice_2_material = materials.add(StandardMaterial {
+                albedo_texture: Some(spice_2_texture),
+                ..Default::default()
+            });
+            let spice_5_texture = asset_server.get_handle("tokens/spice_5.png");
+            let spice_5_material = materials.add(StandardMaterial {
+                albedo_texture: Some(spice_5_texture),
+                ..Default::default()
+            });
+            let spice_10_texture = asset_server.get_handle("tokens/spice_10.png");
+            let spice_10_material = materials.add(StandardMaterial {
+                albedo_texture: Some(spice_10_texture),
+                ..Default::default()
+            });
+
+            let (_, _, spice) = faction.initial_values();
+
+            let (tens, fives, twos, ones) = divide_spice(spice);
+            for (i, (value, s)) in (0..tens)
+                .zip(std::iter::repeat((10, 0)))
+                .chain((0..fives).zip(std::iter::repeat((5, 1))))
+                .chain((0..twos).zip(std::iter::repeat((2, 2))))
+                .chain((0..ones).zip(std::iter::repeat((1, 3))))
+            {
+                let material = match value {
+                    1 => spice_1_material.clone(),
+                    2 => spice_2_material.clone(),
+                    5 => spice_5_material.clone(),
+                    _ => spice_10_material.clone(),
+                };
+                commands
+                    .spawn(
+                        ColliderBundle::new(spice_token_shape.clone()).with_transform(
+                            Transform::from_translation(
+                                data.token_nodes.spice[s] + (i as f32 * 0.0036 * Vec3::unit_y()),
+                            ),
+                        ),
+                    )
+                    .with(ScreenEntity)
+                    .with_bundle(UniqueBundle::new(faction))
+                    .with(Spice { value })
+                    .with_children(|parent| {
+                        parent.spawn(PbrBundle {
+                            mesh: spice_token.clone(),
+                            material,
+                            ..Default::default()
+                        });
+                    });
+            }
+
+            commands
+                .spawn((Player::new(faction, &data.leaders),))
+                .with(ScreenEntity);
+
+            if faction == Faction::BeneGesserit {
+                commands.with(Prediction {
+                    faction: None,
+                    turn: None,
+                });
+            }
+
+            commands.current_entity().unwrap()
+        })
+        .collect();
+
+    (1..=15).for_each(|turn| {
+        let prediction_front_texture =
+            asset_server.get_handle(format!("predictions/prediction_t{}.png", turn).as_str());
+        let prediction_front_material = materials.add(StandardMaterial {
+            albedo_texture: Some(prediction_front_texture),
+            ..Default::default()
+        });
+        commands
+            .spawn(ColliderBundle::new(turn_prediction_shape.clone()))
+            .with(ScreenEntity)
+            .with_bundle(UniqueBundle::new(Faction::BeneGesserit))
+            .with(TurnPredictionCard { turn })
+            .with_children(|parent| {
+                parent.spawn(PbrBundle {
+                    mesh: card_face.clone(),
+                    material: prediction_front_material,
+                    ..Default::default()
+                });
+                parent.spawn(PbrBundle {
+                    mesh: card_back.clone(),
+                    material: prediction_back_material.clone(),
+                    ..Default::default()
+                });
+            });
+    });
+}
+
 fn setup_phase_system(
     mut queue: ResMut<ActionQueue>,
     mut state: ResMut<GamePhase>,
@@ -656,7 +985,6 @@ fn setup_phase_system(
         Query<(Entity, &FactionPredictionCard)>,
         Query<(Entity, &TurnPredictionCard)>,
     )>,
-    mut uniques: Query<(&mut Visible, &Unique)>,
     clickable_locations: Query<(Entity, &LocationSector)>,
     cameras: Query<Entity, With<Camera>>,
     mut troops: Query<(Entity, &mut Troop, &Unique, &Transform)>,
@@ -1105,7 +1433,7 @@ fn storm_phase_system(
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum Phase {
     Setup { subphase: SetupSubPhase },
     Storm { subphase: StormSubPhase },
@@ -1174,7 +1502,15 @@ impl Phase {
     }
 }
 
-#[derive(Copy, Clone)]
+impl Default for Phase {
+    fn default() -> Self {
+        Phase::Setup {
+            subphase: SetupSubPhase::ChooseFactions,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
 pub enum SetupSubPhase {
     ChooseFactions,
     Prediction,
@@ -1184,7 +1520,7 @@ pub enum SetupSubPhase {
     DealTreachery,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum StormSubPhase {
     Reveal,
     WeatherControl,
@@ -1192,18 +1528,9 @@ pub enum StormSubPhase {
     MoveStorm,
 }
 
+#[derive(Copy, Clone, Debug, Default)]
 pub struct GamePhase {
     pub phase: Phase,
-}
-
-impl Default for GamePhase {
-    fn default() -> Self {
-        GamePhase {
-            phase: Phase::Setup {
-                subphase: SetupSubPhase::ChooseFactions,
-            },
-        }
-    }
 }
 
 fn reset(mut phase: ResMut<GamePhase>, mut queue: ResMut<ActionQueue>) {
