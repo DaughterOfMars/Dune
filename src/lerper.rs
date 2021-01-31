@@ -12,7 +12,7 @@ const UI_Z: f32 = 0.1;
 const SPEED_MOD: f32 = 1.0;
 
 #[derive(Copy, Clone)]
-pub enum LerpType {
+pub(crate) enum LerpType {
     UI {
         src: Option<UITransform>,
         dest: UITransform,
@@ -75,7 +75,7 @@ impl LerpType {
 }
 
 #[derive(Copy, Clone)]
-pub struct Lerp {
+pub(crate) struct Lerp {
     lerp_type: LerpType,
     src: Option<Transform>,
     dest: Option<Transform>,
@@ -109,7 +109,7 @@ impl Lerp {
 }
 
 #[derive(Default, Copy, Clone)]
-pub struct UITransform {
+pub(crate) struct UITransform {
     translation: Vec2,
     rotation: Quat,
     scale: f32,
@@ -181,7 +181,7 @@ impl From<(Vec2, Quat, f32)> for UITransform {
     }
 }
 
-pub struct LerpPlugin;
+pub(crate) struct LerpPlugin;
 
 impl Plugin for LerpPlugin {
     fn build(&self, app: &mut AppBuilder) {

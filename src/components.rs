@@ -11,30 +11,30 @@ use ncollide3d::{
 use crate::data::{Faction, Leader, Location};
 
 #[derive(Copy, Clone)]
-pub struct Spice {
+pub(crate) struct Spice {
     pub value: i32,
 }
 
 #[derive(Copy, Clone)]
-pub struct Troop {
+pub(crate) struct Troop {
     pub value: i32,
     pub location: Option<Entity>,
 }
 
 #[derive(Default)]
-pub struct Storm {
+pub(crate) struct Storm {
     pub sector: i32,
 }
 
-pub struct LocationSector {
+pub(crate) struct LocationSector {
     pub location: Location,
     pub sector: i32,
 }
 
-pub struct Disorganized;
+pub(crate) struct Disorganized;
 
 #[derive(Copy, Clone, Debug, Default)]
-pub struct SpiceNode {
+pub(crate) struct SpiceNode {
     pub pos: Vec3,
     pub val: i32,
 }
@@ -49,13 +49,13 @@ impl SpiceNode {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct Unique {
+pub(crate) struct Unique {
     pub faction: Faction,
     pub public: bool,
 }
 
 #[derive(Clone)]
-pub struct Collider {
+pub(crate) struct Collider {
     pub shape: ShapeHandle<f32>,
     pub enabled: bool,
 }
@@ -70,7 +70,7 @@ impl Default for Collider {
 }
 
 #[derive(Bundle, Default)]
-pub struct ColliderBundle {
+pub(crate) struct ColliderBundle {
     transform: Transform,
     global_transform: GlobalTransform,
     collider: Collider,
@@ -94,7 +94,7 @@ impl ColliderBundle {
 }
 
 #[derive(Bundle)]
-pub struct UniqueBundle {
+pub(crate) struct UniqueBundle {
     unique: Unique,
     visible: Visible,
 }
@@ -115,12 +115,12 @@ impl UniqueBundle {
 }
 
 #[derive(Copy, Clone, Default, Debug)]
-pub struct Prediction {
+pub(crate) struct Prediction {
     pub faction: Option<Faction>,
     pub turn: Option<i32>,
 }
 
-pub struct Player {
+pub(crate) struct Player {
     pub faction: Faction,
     pub traitor_cards: Vec<Entity>,
     pub treachery_cards: Vec<Entity>,

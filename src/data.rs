@@ -7,7 +7,7 @@ use bevy::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash)]
-pub enum Faction {
+pub(crate) enum Faction {
     Atreides,
     Harkonnen,
     Emperor,
@@ -51,7 +51,7 @@ impl std::fmt::Display for Faction {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct Leader {
+pub(crate) struct Leader {
     pub name: String,
     pub power: i32,
     pub faction: Faction,
@@ -59,7 +59,7 @@ pub struct Leader {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct Location {
+pub(crate) struct Location {
     pub name: String,
     pub terrain: Terrain,
     pub spice: Option<Vec3>,
@@ -67,14 +67,14 @@ pub struct Location {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct LocationNodes {
+pub(crate) struct LocationNodes {
     pub vertices: Vec<Vec3>,
     pub indices: Vec<i32>,
     pub fighters: Vec<Vec3>,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub enum Terrain {
+pub(crate) enum Terrain {
     Sand,
     Rock,
     Stronghold,
@@ -82,14 +82,14 @@ pub enum Terrain {
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq)]
-pub enum Bonus {
+pub(crate) enum Bonus {
     Carryalls,
     Ornothopters,
     Smugglers,
     Harvesters,
 }
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub enum CardEffect {
+pub(crate) enum CardEffect {
     Worthless,
     PoisonWeapon,
     ProjectileWeapon,
@@ -163,7 +163,7 @@ impl CardEffect {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct TreacheryCard {
+pub(crate) struct TreacheryCard {
     pub id: i32,
     pub effect: CardEffect,
     pub name: String,
@@ -171,33 +171,33 @@ pub struct TreacheryCard {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct TraitorCard {
+pub(crate) struct TraitorCard {
     pub leader: Leader,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct SpiceCard {
+pub(crate) struct SpiceCard {
     pub name: String,
     pub texture: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct StormCard {
+pub(crate) struct StormCard {
     pub val: i32,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct FactionPredictionCard {
+pub(crate) struct FactionPredictionCard {
     pub faction: Faction,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct TurnPredictionCard {
+pub(crate) struct TurnPredictionCard {
     pub turn: i32,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize)]
-pub struct CameraNodes {
+pub(crate) struct CameraNodes {
     pub main: CameraNode,
     pub shield: CameraNode,
     pub board: CameraNode,
@@ -208,7 +208,7 @@ pub struct CameraNodes {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct PredictionNodes {
+pub(crate) struct PredictionNodes {
     pub src: Vec2,
     pub factions: Vec<Vec2>,
     pub turns: Vec<Vec2>,
@@ -217,14 +217,14 @@ pub struct PredictionNodes {
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, Debug)]
-pub struct CameraNode {
+pub(crate) struct CameraNode {
     pub pos: Vec3,
     pub at: Vec3,
     pub up: Vec3,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct TokenNodes {
+pub(crate) struct TokenNodes {
     pub leaders: Vec<Vec3>,
     pub spice: Vec<Vec3>,
     pub fighters: Vec<Vec3>,
@@ -232,7 +232,7 @@ pub struct TokenNodes {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct UiRect {
+pub(crate) struct UiRect {
     pub left: f32,
     pub right: f32,
     pub top: f32,
@@ -264,7 +264,7 @@ impl UiRect {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct UiStructure {
+pub(crate) struct UiStructure {
     pub turn_order: UiRect,
     pub phases: UiRect,
     pub turn_counter: UiRect,

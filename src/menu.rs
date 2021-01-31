@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use bevy::prelude::*;
 
 use crate::{
@@ -5,7 +7,7 @@ use crate::{
     resources::Info,
     tear_down, MessageData, Screen, ScreenEntity, RESPONSE_STAGE, STATE_CHANGE_STAGE,
 };
-pub struct MenuPlugin;
+pub(crate) struct MenuPlugin;
 
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut bevy::prelude::AppBuilder) {
@@ -300,6 +302,7 @@ fn init_server_menu(
 
             println!("Binding 127.0.0.1:12345");
             commands.spawn((Server::new("12345"),));
+            network.address = "127.0.0.1:12345".parse().ok();
             network.network_type = NetworkType::Server;
         }
         NetworkType::Client => {
@@ -530,5 +533,6 @@ fn init_join_menu(
 
     println!("Binding 127.0.0.1:12346");
     commands.spawn((Client::new("12346"),));
+    network.address = "127.0.0.1:12346".parse().ok();
     network.network_type = NetworkType::Client;
 }

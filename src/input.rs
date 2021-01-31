@@ -10,13 +10,13 @@ use crate::{
     data::{CameraNode, FactionPredictionCard, TurnPredictionCard},
     lerper::{Lerp, LerpType},
     multi,
-    phase::{Action, ActionAggregation, ActionQueue, Context},
+    phase::actions::{Action, ActionAggregation, ActionQueue, Context},
     resources::{Data, Info},
     util::{closest, closest_mut, MutRayCastResult, RayCastResult},
     Screen, STATE_CHANGE_STAGE,
 };
 
-pub struct GameInputPlugin;
+pub(crate) struct GameInputPlugin;
 
 impl Plugin for GameInputPlugin {
     fn build(&self, app: &mut AppBuilder) {
@@ -59,13 +59,13 @@ impl Plugin for GameInputPlugin {
     }
 }
 
-pub fn debug_restart_system(mut state: ResMut<State<Screen>>, keyboard_input: Res<Input<KeyCode>>) {
+fn debug_restart_system(mut state: ResMut<State<Screen>>, keyboard_input: Res<Input<KeyCode>>) {
     if keyboard_input.just_pressed(KeyCode::F1) {
         state.overwrite_next(Screen::MainMenu).unwrap();
     }
 }
 
-pub fn camera_system(
+fn camera_system(
     commands: &mut Commands,
     data: Res<Data>,
     windows: Res<Windows>,

@@ -10,7 +10,7 @@ use bytecheck::CheckBytes;
 use laminar::{Packet, Socket, SocketEvent};
 use rkyv::{check_archive, Archive, ArchiveWriter, Seek, Unarchive, Write};
 
-pub struct NetworkPlugin;
+pub(crate) struct NetworkPlugin;
 
 impl Plugin for NetworkPlugin {
     fn build(&self, app: &mut AppBuilder) {
@@ -22,7 +22,7 @@ impl Plugin for NetworkPlugin {
 
 #[derive(Archive, Unarchive, PartialEq, Clone, Debug)]
 #[archive(derive(CheckBytes))]
-pub enum Message {
+pub(crate) enum Message {
     Connect,
     Ping,
     Data(Vec<u8>),
@@ -43,39 +43,41 @@ impl Message {
     }
 }
 
-pub struct Network {
+pub(crate) struct Network {
     pub network_type: NetworkType,
+    pub address: Option<SocketAddr>,
 }
 
 impl Default for Network {
     fn default() -> Self {
         Network {
             network_type: NetworkType::None,
+            address: None,
         }
     }
 }
 
 #[derive(PartialEq)]
-pub enum NetworkType {
+pub(crate) enum NetworkType {
     Server,
     Client,
     None,
 }
 
-pub struct Server {
+pub(crate) struct Server {
     pub socket: Socket,
     pub clients: HashMap<SocketAddr, Connection>,
     pub messages: VecDeque<Vec<u8>>,
 }
 
 #[derive(Copy, Clone)]
-pub struct Connection {
+pub(crate) struct Connection {
     pub address: SocketAddr,
     pub state: ConnectionState,
 }
 
 #[derive(Copy, Clone, PartialEq)]
-pub enum ConnectionState {
+pub(crate) enum ConnectionState {
     Healthy,
     TimedOut,
     Disconnected,
@@ -130,7 +132,7 @@ impl Server {
     }
 }
 
-pub struct Client {
+pub(crate) struct Client {
     pub socket: Socket,
     pub server: Option<Connection>,
     pub messages: VecDeque<Vec<u8>>,

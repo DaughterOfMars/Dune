@@ -2,9 +2,9 @@ use std::fs::File;
 
 use bevy::{ecs::Entity, math::Vec2};
 
-use crate::{data::*, phase::Context};
+use crate::{data::*, phase::actions::Context};
 
-pub struct Data {
+pub(crate) struct Data {
     pub leaders: Vec<Leader>,
     pub locations: Vec<Location>,
     pub treachery_cards: Vec<TreacheryCard>,
@@ -46,8 +46,9 @@ impl Default for Data {
     }
 }
 
-pub struct Info {
+pub(crate) struct Info {
     pub turn: i32,
+    pub me: Option<Entity>,
     pub players: Vec<String>,
     pub factions_in_play: Vec<Faction>,
     pub current_turn: usize,
@@ -61,6 +62,7 @@ impl Default for Info {
     fn default() -> Self {
         Info {
             turn: 0,
+            me: None,
             players: Vec::new(),
             factions_in_play: Vec::new(),
             current_turn: 0,
@@ -75,6 +77,7 @@ impl Default for Info {
 impl Info {
     pub fn reset(&mut self) {
         self.turn = 0;
+        self.me = None;
         self.factions_in_play = Vec::new();
         self.current_turn = 0;
         self.active_player = None;

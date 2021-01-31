@@ -72,6 +72,7 @@ impl MessageData {
 
 const STATE_CHANGE_STAGE: &str = "state_change";
 const RESPONSE_STAGE: &str = "response";
+const END_STAGE: &str = "end";
 
 #[derive(Default)]
 struct LoadingAssets {
@@ -106,8 +107,8 @@ fn main() {
         .add_plugin(MenuPlugin)
         .add_plugin(NetworkPlugin);
 
-    app.add_stage("end", SystemStage::parallel())
-        .add_system_to_stage("end", propagate_visibility.system())
+    app.add_stage(END_STAGE, SystemStage::parallel())
+        .add_system_to_stage(END_STAGE, propagate_visibility.system())
         .add_startup_system(init_camera.system());
 
     app.on_state_enter(RESPONSE_STAGE, Screen::Loading, init_loading_game.system())

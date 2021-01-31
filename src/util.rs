@@ -13,12 +13,12 @@ use rand::{prelude::SliceRandom, Rng};
 
 use crate::components::Collider;
 
-pub fn screen_to_world(ss_pos: Vec3, transform: Transform, v: Mat4) -> Vec3 {
+pub(crate) fn screen_to_world(ss_pos: Vec3, transform: Transform, v: Mat4) -> Vec3 {
     let p = transform.compute_matrix() * v.inverse() * ss_pos.extend(1.0);
     p.xyz() / p.w
 }
 
-pub fn divide_spice(mut total: i32) -> (i32, i32, i32, i32) {
+pub(crate) fn divide_spice(mut total: i32) -> (i32, i32, i32, i32) {
     let (mut tens, mut fives, mut twos, mut ones) = (0, 0, 0, 0);
     while total > 0 {
         match total {
@@ -43,7 +43,7 @@ pub fn divide_spice(mut total: i32) -> (i32, i32, i32, i32) {
     (tens, fives, twos, ones)
 }
 
-pub fn compute_click_ray(
+pub(crate) fn compute_click_ray(
     window: &Window,
     click_pos: Vec2,
     camera: &Camera,
@@ -62,13 +62,13 @@ pub fn compute_click_ray(
     )
 }
 
-pub struct RayCastResult<'a, T: Component> {
+pub(crate) struct RayCastResult<'a, T: Component> {
     pub intersection: Vec3,
     pub entity: Entity,
     pub component: &'a T,
 }
 
-pub fn closest<'a, T: Component>(
+pub(crate) fn closest<'a, T: Component>(
     windows: &Res<Windows>,
     cameras: &Query<(&Camera, &Transform), Without<OrthographicProjection>>,
     colliders: &'a Query<(Entity, &Collider, &Transform, &'a T)>,
@@ -134,13 +134,13 @@ pub fn closest<'a, T: Component>(
     None
 }
 
-pub struct MutRayCastResult<'a, T: Component> {
+pub(crate) struct MutRayCastResult<'a, T: Component> {
     pub intersection: Vec3,
     pub entity: Entity,
     pub component: Mut<'a, T>,
 }
 
-pub fn closest_mut<'a, 'b, T: Component>(
+pub(crate) fn closest_mut<'a, 'b, T: Component>(
     windows: &Res<Windows>,
     cameras: &Query<(&Camera, &Transform), Without<OrthographicProjection>>,
     colliders: &'a mut Query<(Entity, &Collider, &Transform, &'b mut T)>,
@@ -206,8 +206,11 @@ pub fn closest_mut<'a, 'b, T: Component>(
     None
 }
 
-pub fn shuffle_deck<R>(rng: &mut R, offset: f32, entities: &mut HashMap<Entity, Mut<Transform>>)
-where
+pub(crate) fn shuffle_deck<R>(
+    rng: &mut R,
+    offset: f32,
+    entities: &mut HashMap<Entity, Mut<Transform>>,
+) where
     R: Rng + ?Sized,
 {
     let start = entities
@@ -228,7 +231,7 @@ where
     }
 }
 
-pub fn hand_positions(n: i32) -> Vec<Vec2> {
+pub(crate) fn hand_positions(n: i32) -> Vec<Vec2> {
     // TODO: Make this radial
     let res = (0..n)
         .map(|i| Vec2::new(2.0 * ((1.0 + i as f32) / (1.0 + n as f32)) - 1.0, -0.3))
