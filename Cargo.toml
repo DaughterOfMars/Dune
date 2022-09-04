@@ -2,17 +2,25 @@
 name = "dune"
 version = "0.1.0"
 authors = ["Alex Coats <alexandcoats@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bevy = "0.4.0"
-ron = "0.6.4"
+bevy = "0.8"
+ron = "0.8"
 serde = { version = "1.0", features = ["serde_derive"] }
-rand = "0.8.0"
-ncollide3d = "0.27.0"
-maplit = "1.0.2"
-laminar = "0.4.0"
-rkyv = { version = "0.3.0", features = ["validation"] }
-bytecheck = "0.3.0"
+rand = "0.8"
+bevy_mod_picking = "0.9"
+maplit = "1.0"
+bevy-inspector-egui = "0.12"
+
+[features]
+default = ["debug"]
+debug = []
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

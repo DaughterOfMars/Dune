@@ -1,5 +1,5 @@
-[
-	(
+{
+	Arrakeen: (
 		name: "Arrakeen",
 		terrain: Stronghold,
 		spice: None,
@@ -31,7 +31,7 @@
 			),
 		},
 	),
-	(
+	Arsunt: (
 		name: "Arsunt",
 		terrain: Sand,
 		spice: None,
@@ -81,7 +81,7 @@
 			),
 		},
 	),
-	(
+	Basin: (
 		name: "Basin",
 		terrain: Sand,
 		spice: None,
@@ -112,7 +112,7 @@
 			),
 		},
 	),
-	(
+	BightOfTheCliff: (
 		name: "Bight of the Cliff",
 		terrain: Sand,
 		spice: None,
@@ -167,7 +167,7 @@
 			),
 		},
 	),
-	(
+	BrokenLand: (
 		name: "Broken Land",
 		terrain: Sand,
 		spice: Some((-0.3000414967536926, 0.7464467287063599, 0.006410777568817139)),
@@ -210,7 +210,7 @@
 			),
 		},
 	),
-	(
+	Carthag: (
 		name: "Carthag",
 		terrain: Stronghold,
 		spice: None,
@@ -239,7 +239,7 @@
 			),
 		},
 	),
-	(
+	CielagoDepression: (
 		name: "Cielago Depression",
 		terrain: Sand,
 		spice: None,
@@ -305,7 +305,7 @@
 			),
 		},
 	),
-	(
+	CielagoEast: (
 		name: "Cielago East",
 		terrain: Sand,
 		spice: None,
@@ -358,7 +358,7 @@
 			),
 		},
 	),
-	(
+	CielagoNorth: (
 		name: "Cielago North",
 		terrain: Sand,
 		spice: Some((0.09996771812438965, -0.28787875175476074, 0.006410777568817139)),
@@ -420,7 +420,7 @@
 			),
 		},
 	),
-	(
+	CielagoSouth: (
 		name: "Cielago South",
 		terrain: Sand,
 		spice: Some((0.033113718032836914, -0.8026537895202637, 0.006410777568817139)),
@@ -468,7 +468,7 @@
 			),
 		},
 	),
-	(
+	CielagoWest: (
 		name: "Cielago West",
 		terrain: Sand,
 		spice: None,
@@ -515,7 +515,7 @@
 			),
 		},
 	),
-	(
+	FalseWallEast: (
 		name: "False Wall East",
 		terrain: Rock,
 		spice: None,
@@ -588,7 +588,7 @@
 			),
 		},
 	),
-	(
+	FalseWallSouth: (
 		name: "False Wall South",
 		terrain: Rock,
 		spice: None,
@@ -656,7 +656,7 @@
 			),
 		},
 	),
-	(
+	FalseWallWest: (
 		name: "False Wall West",
 		terrain: Rock,
 		spice: None,
@@ -719,7 +719,7 @@
 			),
 		},
 	),
-	(
+	FuneralPlain: (
 		name: "Funeral Plain",
 		terrain: Sand,
 		spice: Some((-0.762288510799408, 0.16258928179740906, 0.006410777568817139)),
@@ -756,7 +756,7 @@
 			),
 		},
 	),
-	(
+	GaraKulon: (
 		name: "Gara Kulon",
 		terrain: Sand,
 		spice: None,
@@ -789,7 +789,7 @@
 			),
 		},
 	),
-	(
+	HabbanyaErg: (
 		name: "Habbanya Erg",
 		terrain: Sand,
 		spice: Some((-0.7777285575866699, -0.20001348853111267, 0.006410777568817139)),
@@ -838,7 +838,7 @@
 			),
 		},
 	),
-	(
+	HabbanyaRidgeFlat: (
 		name: "Habbanya Ridge Flat",
 		terrain: Sand,
 		spice: Some((-0.48484480381011963, -0.6156219840049744, 0.006410777568817139)),
@@ -900,7 +900,7 @@
 			),
 		},
 	),
-	(
+	HabbanyaSietch: (
 		name: "Habbanya Sietch",
 		terrain: Stronghold,
 		spice: None,
@@ -926,7 +926,7 @@
 			),
 		},
 	),
-	(
+	HaggaBasin: (
 		name: "Hagga Basin",
 		terrain: Sand,
 		spice: Some((-0.2739366292953491, 0.34022966027259827, 0.006410777568817139)),
@@ -981,7 +981,7 @@
 			),
 		},
 	),
-	(
+	HargPass: (
 		name: "Harg Pass",
 		terrain: Sand,
 		spice: None,
@@ -1019,7 +1019,7 @@
 			),
 		},
 	),
-	(
+	HoleInTheRock: (
 		name: "Hole in the Rock",
 		terrain: Sand,
 		spice: None,
@@ -1056,7 +1056,7 @@
 			),
 		},
 	),
-	(
+	ImperialBasin: (
 		name: "Imperial Basin",
 		terrain: Sand,
 		spice: None,
@@ -1137,7 +1137,7 @@
 			),
 		},
 	),
-	(
+	Meridian: (
 		name: "Meridian",
 		terrain: Sand,
 		spice: None,
@@ -1182,7 +1182,7 @@
 			),
 		},
 	),
-	(
+	OldGap: (
 		name: "Old Gap",
 		terrain: Sand,
 		spice: Some((0.20804816484451294, 0.7833755612373352, 0.006410777568817139)),
@@ -1238,7 +1238,7 @@
 			),
 		},
 	),
-	(
+	PastyMesa: (
 		name: "Pasty Mesa",
 		terrain: Rock,
 		spice: None,
@@ -1345,7 +1345,7 @@
 			),
 		},
 	),
-	(
+	PlasticBasin: (
 		name: "Plastic Basin",
 		terrain: Rock,
 		spice: None,
@@ -1429,7 +1429,7 @@
 			),
 		},
 	),
-	(
+	RedChasm: (
 		name: "Red Chasm",
 		terrain: Sand,
 		spice: Some((0.8098924160003662, 0.06915292888879776, 0.006410777568817139)),
@@ -1456,7 +1456,7 @@
 			),
 		},
 	),
-	(
+	RimWallWest: (
 		name: "Rim Wall West",
 		terrain: Rock,
 		spice: None,
@@ -1492,7 +1492,7 @@
 			),
 		},
 	),
-	(
+	RockOutcroppings: (
 		name: "Rock Outcroppings",
 		terrain: Sand,
 		spice: Some((-0.6583465933799744, 0.476325124502182, 0.006410777568817139)),
@@ -1534,7 +1534,7 @@
 			),
 		},
 	),
-	(
+	SihayaRidge: (
 		name: "Sihaya Ridge",
 		terrain: Sand,
 		spice: Some((0.5649206638336182, 0.5349018573760986, 0.006410777568817139)),
@@ -1558,7 +1558,7 @@
 			),
 		},
 	),
-	(
+	ShieldWall: (
 		name: "Shield Wall",
 		terrain: Rock,
 		spice: None,
@@ -1619,7 +1619,7 @@
 			),
 		},
 	),
-	(
+	SietchTabr: (
 		name: "Sietch Tabr",
 		terrain: Stronghold,
 		spice: None,
@@ -1655,7 +1655,7 @@
 			),
 		},
 	),
-	(
+	SouthMesa: (
 		name: "South Mesa",
 		terrain: Sand,
 		spice: Some((0.7443119883537292, -0.31700795888900757, 0.006410777568817139)),
@@ -1723,7 +1723,7 @@
 			),
 		},
 	),
-	(
+	TheGreatFlat: (
 		name: "The Great Flat",
 		terrain: Sand,
 		spice: Some((-0.769610583782196, 0.07010804861783981, 0.006410777568817139)),
@@ -1754,7 +1754,7 @@
 			),
 		},
 	),
-	(
+	TheGreaterFlat: (
 		name: "The Greater Flat",
 		terrain: Sand,
 		spice: None,
@@ -1789,7 +1789,7 @@
 			),
 		},
 	),
-	(
+	TheMinorErg: (
 		name: "The Minor Erg",
 		terrain: Sand,
 		spice: Some((0.285407692193985, 0.13903118669986725, 0.006410777568817139)),
@@ -1867,7 +1867,7 @@
 			),
 		},
 	),
-	(
+	Tsimpo: (
 		name: "Tsimpo",
 		terrain: Sand,
 		spice: None,
@@ -1939,7 +1939,7 @@
 			),
 		},
 	),
-	(
+	TueksSietch: (
 		name: "Tuek's Sietch",
 		terrain: Stronghold,
 		spice: None,
@@ -1970,7 +1970,7 @@
 			),
 		},
 	),
-	(
+	WindPassNorth: (
 		name: "Wind Pass North",
 		terrain: Sand,
 		spice: Some((-0.16903966665267944, -0.10323463380336761, 0.006410777568817139)),
@@ -2006,7 +2006,7 @@
 			),
 		},
 	),
-	(
+	WindPass: (
 		name: "Wind Pass",
 		terrain: Sand,
 		spice: None,
@@ -2065,7 +2065,7 @@
 			),
 		},
 	),
-	(
+	PolarSink: (
 		name: "Polar Sink",
 		terrain: Sand,
 		spice: None,
@@ -2112,4 +2112,4 @@
 			),
 		},
 	),
-]
+}

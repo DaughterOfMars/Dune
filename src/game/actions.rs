@@ -1,8 +1,11 @@
 use super::*;
-use crate::single;
+use crate::{
+    components::PlayerFaction,
+    single,
+};
 
 #[derive(Clone)]
-pub(crate) enum Action {
+pub enum Action {
     Enable { clickables: Vec<Entity> },
     SetActivePlayer { player: Entity },
     PassTurn,
@@ -47,7 +50,7 @@ impl std::fmt::Display for Action {
 }
 
 #[derive(Clone)]
-pub(crate) struct ActionChain {
+pub struct ActionChain {
     current: Action,
     next: Option<Box<ActionChain>>,
 }
@@ -81,7 +84,7 @@ impl From<Action> for ActionChain {
     }
 }
 
-pub(crate) struct ContextAction {
+pub struct ContextAction {
     pub action: ActionAggregation,
     pub context: Context,
 }
@@ -119,7 +122,7 @@ impl std::fmt::Display for ContextAction {
     }
 }
 
-pub(crate) enum ActionAggregation {
+pub enum ActionAggregation {
     Single(ActionChain),
     Multiple(Vec<ActionChain>),
 }
@@ -139,7 +142,7 @@ impl std::fmt::Display for ActionAggregation {
     }
 }
 
-pub(crate) struct ActionQueue(VecDeque<ContextAction>);
+pub struct ActionQueue(VecDeque<ContextAction>);
 
 impl Default for ActionQueue {
     fn default() -> Self {
@@ -165,8 +168,7 @@ impl ActionQueue {
     }
 
     pub fn push_multiple(&mut self, actions: Vec<ActionChain>) {
-        self.0
-            .push_back(ActionAggregation::Multiple(actions).into())
+        self.0.push_back(ActionAggregation::Multiple(actions).into())
     }
 
     pub fn push_multiple_for_context(&mut self, actions: Vec<ActionChain>, context: Context) {
@@ -186,8 +188,7 @@ impl ActionQueue {
     }
 
     pub fn push_multiple_front(&mut self, actions: Vec<ActionChain>) {
-        self.0
-            .push_front(ActionAggregation::Multiple(actions).into())
+        self.0.push_front(ActionAggregation::Multiple(actions).into())
     }
 
     pub fn push_multiple_front_for_context(&mut self, actions: Vec<ActionChain>, context: Context) {
@@ -245,7 +246,7 @@ impl std::fmt::Display for ActionQueue {
 }
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
-pub(crate) enum Context {
+pub enum Context {
     None,
     Predicting,
     PlacingTroops,
@@ -277,16 +278,16 @@ enum ActionResult {
     Add(ActionChain),
 }
 
-pub(crate) fn action(
-    commands: &mut Commands,
+pub fn action(
+    mut commands: Commands,
     time: Res<Time>,
     mut info: ResMut<Info>,
     mut phase: ResMut<GamePhase>,
     mut queue: ResMut<ActionQueue>,
-    mut queries: QuerySet<(Query<&mut Lerp>, Query<&Player>, Query<&mut Collider>)>,
+    mut queries: QuerySet<(Query<&mut Lerp>, Query<&PlayerFaction>, Query<&mut Collider>)>,
 ) {
-    //println!("Context: {:?}, Queue: {}", info.context, queue.to_string());
-    //println!(
+    // println!("Context: {:?}, Queue: {}", info.context, queue.to_string());
+    // println!(
     //    "Active player: {:?}",
     //    queries.q1().get(info.get_active_player()).unwrap().faction
     //);
@@ -299,14 +300,7 @@ pub(crate) fn action(
         if info.context == *context {
             match aggregate {
                 ActionAggregation::Single(action) => {
-                    match action_subsystem(
-                        commands,
-                        action,
-                        &time,
-                        &mut info,
-                        &mut phase,
-                        &mut queries,
-                    ) {
+                    match action_subsystem(commands, action, &time, &mut info, &mut phase, &mut queries) {
                         ActionResult::None => (),
                         ActionResult::Remove => {
                             queue.pop();
@@ -322,14 +316,7 @@ pub(crate) fn action(
                 ActionAggregation::Multiple(actions) => {
                     let mut new_actions = Vec::new();
                     for mut action in actions.drain(..) {
-                        match action_subsystem(
-                            commands,
-                            &mut action,
-                            &time,
-                            &mut info,
-                            &mut phase,
-                            &mut queries,
-                        ) {
+                        match action_subsystem(commands, &mut action, &time, &mut info, &mut phase, &mut queries) {
                             ActionResult::None => new_actions.push(action),
                             ActionResult::Remove => (),
                             ActionResult::Replace(new_action) => new_actions.push(new_action),
@@ -353,12 +340,12 @@ pub(crate) fn action(
 }
 
 fn action_subsystem(
-    commands: &mut Commands,
+    mut commands: Commands,
     action: &mut ActionChain,
     time: &Res<Time>,
     info: &mut ResMut<Info>,
     phase: &mut ResMut<GamePhase>,
-    queries: &mut QuerySet<(Query<&mut Lerp>, Query<&Player>, Query<&mut Collider>)>,
+    queries: &mut QuerySet<(Query<&mut Lerp>, Query<&PlayerFaction>, Query<&mut Collider>)>,
 ) -> ActionResult {
     match action.current {
         Action::Enable { ref clickables } => {
@@ -374,44 +361,19 @@ fn action_subsystem(
         Action::PassTurn => {
             print!(
                 "Pass turn from {:?}",
-                queries
-                    .q1_mut()
-                    .get(info.get_active_player())
-                    .unwrap()
-                    .faction
+                queries.q1_mut().get(info.get_active_player()).unwrap().0
             );
             if info.active_player.is_some() {
                 info.active_player = None;
-                println!(
-                    " to {:?}",
-                    queries
-                        .q1_mut()
-                        .get(info.get_active_player())
-                        .unwrap()
-                        .faction
-                );
+                println!(" to {:?}", queries.q1_mut().get(info.get_active_player()).unwrap().0);
             } else {
                 info.current_turn += 1;
                 if info.current_turn >= info.play_order.len() {
                     info.current_turn %= info.play_order.len();
-                    println!(
-                        " to {:?}",
-                        queries
-                            .q1_mut()
-                            .get(info.get_active_player())
-                            .unwrap()
-                            .faction
-                    );
+                    println!(" to {:?}", queries.q1_mut().get(info.get_active_player()).unwrap().0);
                     action.append(Action::AdvancePhase.into());
                 } else {
-                    println!(
-                        " to {:?}",
-                        queries
-                            .q1_mut()
-                            .get(info.get_active_player())
-                            .unwrap()
-                            .faction
-                    );
+                    println!(" to {:?}", queries.q1_mut().get(info.get_active_player()).unwrap().0);
                 }
             }
         }

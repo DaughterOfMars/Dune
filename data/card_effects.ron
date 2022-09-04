@@ -1,0 +1,71 @@
+{
+    Worthless: (
+        description: "Play as part of your Battle Plan, in place of weapon, defense, or both. \
+            This card has no value in play, and you can discard it only by playing it in your Battle Plan."
+    ),
+    PoisonWeapon: (
+        description: "Play as part of your Battle Plan. \
+            Kills enemy leader before the battle is resolved. \
+            May be countered by an appropriate defense (Snooper). \
+            You may keep this card if you win in this battle."
+    ),
+    ProjectileWeapo: (
+        description: "Play as part of your Battle Plan. \
+            Kills enemy leader before the battle is resolved. \
+            May be countered by an appropriate defense (Shield). \
+            You may keep this card if you win in this battle."
+    ),
+    CheapHero: (
+        description: "Play as a leader with zero strength on your Battle Plan. \
+            (leader allows you to play 1 weapon & 1 defense card on Battle Plan) \
+            Can be played together with another leader, allowing you to return & \
+            save that leader immediately after both Battle Plans were revealed."
+    ),
+    PoisonDefense: (
+        description: "Play as part of your Battle Plan. \
+            Protects your leader from enemy poison weapon in this battle. \
+            You may keep this card if you win in this battle."
+    ),
+    ProjectileDefense: (
+        description: "Play as part of your Battle Plan. \
+            Protects your leader from enemy projectile weapon in this battle. \
+            You may keep this card if you win in this battle."
+    ),
+    Atomics: (
+        description: "Play after the storm movement is calulated by before storm is moved, \
+            and only if you have token(s) on the Shield Wall or an adjacent territory. \
+            All tokens in the Shield Wall are destroyed. Arrakeen, Imperial Basin & Carthag \
+            are no longer protected from the storm for the rest of the game."
+    ),
+    Movement: (
+        description: "Play during Movement round. \
+            Take an additional on-planet token movement subject to normal movement rules. \
+            This may be the same or another group of your tokens."
+    ),
+    Karama: (
+        description: "You may play this cartd to activate a single Karama Power of your choice."
+    ),
+    Lasgun: (
+        description: "Play as part of your Battle Plan. \
+            Automatically kills enemy leader regardless of defense card used. \
+            You may keep this card if you win in this battle. \
+            If anyone plays a Shield in this battle, and neither leader is a traitor, \
+            then all tokens and leaders in this battle's territory are killed. Both players lose this battle."
+    ),
+    Revive: (
+        description: "Play at any time. \
+            You may immediately revive 1 of your leaders of up to 5 of your tokens \
+            from the tanks to your reserves at no cost in spice. \
+            Does not count against per-turn limits on revivals."
+    ),
+    Truthtrance: (
+        description: "Ask one other player a single yes/no question about the game \
+            which must be answered publicly. \
+            No game or rule CardEffect may interrupt the answer being given. \
+            The player must answer 'yes' or 'no' truthfully."
+    ),
+    WeatherControl: (
+        description: "Play at the start of the Storm round, before the storm movement is calulated. \
+            You control the storm this round and may move it from 0 to 10 sectors in a counterclockwise direction."
+    ),
+}

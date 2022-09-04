@@ -1,0 +1,134 @@
+[
+    (
+        card: Lasgun,
+        texture: "lasgun",
+    ),
+    (
+        card: ProjectileWeapon,
+        texture: "chrysknife",
+    ),
+    (
+        card: MaulaPistol,
+        texture: "maulapistol",
+    ),
+    (
+        card: SlipTip,
+        texture: "sliptip",
+    ),
+    (
+        card: Stunner,
+        texture: "stunner",
+    ),
+    (
+        card: Chaumas,
+        texture: "Chaumas",
+    ),
+    (
+        card: Chaumurky,
+        texture: "chaumurky",
+    ),
+    (
+        card: EllacaDrug,
+        texture: "ellacadrug",
+    ),
+    (
+        card: GomJabbar,
+        texture: "gomjabbar",
+    ),
+    (
+        card: Shield,
+        texture: "shield1",
+    ),
+    (
+        card: Shield,
+        texture: "shield2",
+    ),
+    (
+        card: Shield,
+        texture: "shield3",
+    ),
+    (
+        card: Shield,
+        texture: "shield4",
+    ),
+    (
+        card: Snooper,
+        texture: "snooper1",
+    ),
+    (
+        card: Snooper,
+        texture: "snooper2",
+    ),
+    (
+        card: Snooper,
+        texture: "snooper3",
+    ),
+    (
+        card: Snooper,
+        texture: "snooper4",
+    ),
+    (
+        card: CheapHero,
+        texture: "cheaphero1",
+    ),
+    (
+        card: CheapHero,
+        texture: "cheaphero2",
+    ),
+    (
+        card: CheapHeroine,
+        texture: "cheapheroine",
+    ),
+    (
+        card: TleilaxuGhola,
+        texture: "tleilaxughola",
+    ),
+    (
+        card: FamilyAtomics,
+        texture: "familyatomics",
+    ),
+    (
+        card: Hajr,
+        texture: "hajr",
+    ),
+    (
+        card: Karama,
+        texture: "karama1",
+    ),
+    (
+        card: Karama,
+        texture: "karama2",
+    ),
+    (
+        card: Truthtrance,
+        texture: "truthtrance1",
+    ),
+    (
+        card: Truthtrance,
+        texture: "truthtrance2",
+    ),
+    (
+        card: WeatherControl,
+        texture: "weathercontrol",
+    ),
+    (
+        card: Baliset,
+        texture: "baliset",
+    ),
+    (
+        card: JubbaCloak,
+        texture: "jubbacloak",
+    ),
+    (
+        card: Kulon,
+        texture: "kulon",
+    ),
+    (
+        card: LaLaLa,
+        texture: "lalala",
+    ),
+    (
+        card: TripToGamont,
+        texture: "gamont",
+    ),
+]

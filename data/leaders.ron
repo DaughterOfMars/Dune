@@ -1,182 +1,182 @@
-[
-    (
+{
+    GurneyHalleck: (
         name: "Gurney Halleck",
         power: 4,
         faction: Atreides,
         texture: "at_halleck",
     ),
-    (
+    ThufirHawat: (
         name: "Thufir Hawat",
         power: 5,
         faction: Atreides,
         texture: "at_hawat",
     ),
-    (
+    DuncanIdaho: (
         name: "Duncan Idaho",
         power: 2,
         faction: Atreides,
         texture: "at_idaho",
     ),
-    (
+    LadyJessica: (
         name: "Lady Jessica",
         power: 5,
         faction: Atreides,
         texture: "at_jessica",
     ),
-    (
+    DrWellingtonYueh: (
         name: "Dr. Wellington Yueh",
         power: 1,
         faction: Atreides,
         texture: "at_yueh",
     ),
-    (
+    Alia: (
         name: "Alia",
         power: 5,
         faction: BeneGesserit,
         texture: "bg_alia",
     ),
-    (
+    MargotLadyFenring: (
         name: "Margot Lady Fenring",
         power: 5,
         faction: BeneGesserit,
         texture: "bg_fenring",
     ),
-    (
+    PrincessIrulan: (
         name: "Princess Irulan",
         power: 5,
         faction: BeneGesserit,
         texture: "bg_irulan",
     ),
-    (
+    MotherRamallo: (
         name: "Mother Ramallo",
         power: 5,
         faction: BeneGesserit,
         texture: "bg_ramallo",
     ),
-    (
+    WannaMarcus: (
         name: "Wanna Marcus",
         power: 5,
         faction: BeneGesserit,
         texture: "bg_wanna",
     ),
-    (
+    CaptainAramsham: (
         name: "Captain Aramsham",
         power: 5,
         faction: Emperor,
         texture: "em_aramsham",
     ),
-    (
+    Bashar: (
         name: "Bashar",
         power: 2,
         faction: Emperor,
         texture: "em_bashar",
     ),
-    (
+    Burseg: (
         name: "Burseg",
         power: 3,
         faction: Emperor,
         texture: "em_burseg",
     ),
-    (
+    Caid: (
         name: "Caid",
         power: 3,
         faction: Emperor,
         texture: "em_caid",
     ),
-    (
+    HasimirFenring: (
         name: "Hasimir Fenring",
         power: 6,
         faction: Emperor,
         texture: "em_fenring",
     ),
-    (
+    Chani: (
         name: "Chani",
         power: 6,
         faction: Fremen,
         texture: "fr_chani",
     ),
-    (
+    Jamis: (
         name: "Jamis",
         power: 2,
         faction: Fremen,
         texture: "fr_jamis",
     ),
-    (
+    ShadoutMapes: (
         name: "Shadout Mapes",
         power: 3,
         faction: Fremen,
         texture: "fr_mapes",
     ),
-    (
+    Otheym: (
         name: "Otheym",
         power: 5,
         faction: Fremen,
         texture: "fr_otheym",
     ),
-    (
+    Stilgar: (
         name: "Stilgar",
         power: 7,
         faction: Fremen,
         texture: "fr_stilgar",
     ),
-    (
+    UmmanKudu: (
         name: "Umman Kudu",
         power: 1,
         faction: Harkonnen,
         texture: "hk_kudu",
     ),
-    (
+    CaptainIakinNefud: (
         name: "Captain Iakin Nefud",
         power: 2,
         faction: Harkonnen,
         texture: "hk_nefud",
     ),
-    (
+    BeastRabban: (
         name: "Beast Rabban",
         power: 4,
         faction: Harkonnen,
         texture: "hk_rabban",
     ),
-    (
+    FeydRautha: (
         name: "Feyd Rautha",
         power: 6,
         faction: Harkonnen,
         texture: "hk_rautha",
     ),
-    (
+    PiterDeVries: (
         name: "Piter de Vries",
         power: 3,
         faction: Harkonnen,
         texture: "hk_vries",
     ),
-    (
+    MasterBewt: (
         name: "Master Bewt",
         power: 3,
         faction: SpacingGuild,
         texture: "sg_bewt",
     ),
-    (
+    EsmarTuek: (
         name: "Esmar Tuek",
         power: 3,
         faction: SpacingGuild,
         texture: "sg_esmar",
     ),
-    (
+    GuildRep: (
         name: "Guild Rep.",
         power: 1,
         faction: SpacingGuild,
         texture: "sg_rep",
     ),
-    (
+    SooSooSook: (
         name: "Soo-Soo Sook",
         power: 2,
         faction: SpacingGuild,
         texture: "sg_sook",
     ),
-    (
+    StabanTuek: (
         name: "Staban Tuek",
         power: 5,
         faction: SpacingGuild,
         texture: "sg_staban",
     ),
-]
+}

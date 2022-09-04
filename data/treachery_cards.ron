@@ -1,0 +1,98 @@
+{
+    Lasgun: (
+        effect: Lasgun,
+        name: "Lasgun",
+    ),
+    Chrysknife: (
+        effect: ProjectileWeapon,
+        name: "Chrysknife",
+    ),
+    MaulaPistol: (
+        effect: ProjectileWeapon,
+        name: "Maula Pistol",
+    ),
+    SlipTip: (
+        effect: ProjectileWeapon,
+        name: "Slip Tip",
+    ),
+    Stunner: (
+        effect: ProjectileWeapon,
+        name: "Stunner",
+    ),
+    Chaumas: (
+        effect: PoisonWeapon,
+        name: "Chaumas",
+    ),
+    Chaumurky: (
+        effect: PoisonWeapon,
+        name: "Chaumurky",
+    ),
+    EllacaDrug: (
+        effect: PoisonWeapon,
+        name: "Ellaca Drug",
+    ),
+    GomJabbar: (
+        effect: PoisonWeapon,
+        name: "Gom Jabbar",
+    ),
+    Shield: (
+        effect: ProjectileDefense,
+        name: "Shield",
+    ),
+    Snooper: (
+        effect: PoisonDefense,
+        name: "Snooper",
+    ),
+    CheapHero: (
+        effect: CheapHero,
+        name: "Cheap Hero",
+    ),
+    CheapHeroine: (
+        effect: CheapHero,
+        name: "Cheap Heroine",
+    ),
+    TleilaxuGhola: (
+        effect: Revive,
+        name: "Tleilaxu Ghola",
+    ),
+    FamilyAtomics: (
+        effect: Atomics,
+        name: "Family Atomics",
+    ),
+    Hajr: (
+        effect: Movement,
+        name: "Hajr",
+    ),
+    Karama: (
+        effect: Karama,
+        name: "Karama",
+    ),
+    Truthtrance: (
+        effect: Truthtrance,
+        name: "Truthtrance",
+    ),
+    WeatherControl: (
+        effect: WeatherControl,
+        name: "Weather Control",
+    ),
+    Baliset: (
+        effect: Worthless,
+        name: "Baliset",
+    ),
+    JubbaCloak: (
+        effect: Worthless,
+        name: "Jubba Cloak",
+    ),
+    Kulon: (
+        effect: Worthless,
+        name: "Kulon",
+    ),
+    LaLaLa: (
+        effect: Worthless,
+        name: "La La La",
+    ),
+    TripToGamont: (
+        effect: Worthless,
+        name: "Trip to Gamont",
+    ),
+}

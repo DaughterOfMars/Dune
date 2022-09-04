@@ -1,0 +1,48 @@
+{
+    Atreides: (
+        name: "Atreides",
+        starting_values: (
+            units: 10,
+            possible_locations: [Arrakeen],
+            spice: 10,
+        )
+    ),
+    BeneGesserit: (
+        name: "Bene Gesserit",
+        starting_values: (
+            units: 1,
+            spice: 5,
+        )
+    ),
+    Fremen: (
+        name: "Fremen",
+        starting_values: (
+            units: 10,
+            possible_locations: [SietchTabr, FalseWallSouth, FalseWallEast],
+            spice: 10,
+        )
+    ),
+    Emperor: (
+        name: "Emperor",
+        starting_values: (
+            units: 0,
+            spice: 10,
+        )
+    ),
+    SpacingGuild: (
+        name: "Spacing Guild",
+        starting_values: (
+            units: 5,
+            possible_locations: [TueksSietch],
+            spice: 5,
+        )
+    ),
+    Harkonnen: (
+        name: "Harkonnen",
+        starting_values: (
+            units: 10,
+            possible_locations: [Carthag],
+            spice: 10,
+        )
+    ),
+}

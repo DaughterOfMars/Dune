@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 
-use crate::data::CardEffect;
+use crate::components::CardEffect;
 
-pub(crate) struct EffectStack(pub Vec<CardEffect>);
+pub struct EffectStack(pub Vec<CardEffect>);
 
 impl Default for EffectStack {
     fn default() -> Self {
@@ -40,7 +40,7 @@ impl EffectStack {
     }
 }
 
-pub(crate) fn effects_system(mut stack: ResMut<EffectStack>) {
+pub fn effects_system(mut stack: ResMut<EffectStack>) {
     if let Some(action) = stack.peek_mut() {
         match action {
             CardEffect::Worthless => {}

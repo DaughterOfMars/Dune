@@ -1,61 +1,55 @@
-use std::fs::File;
+use std::{collections::HashMap, fs::File};
 
-use bevy::{ecs::Entity, math::Vec2};
+use bevy::{ecs::entity::Entity, math::Vec2};
 
-use crate::{data::*, phase::actions::Context};
+use crate::{
+    components::{Faction, Leader, Location, SpiceCard, TreacheryCard},
+    data::{
+        CameraNodeData, FactionData, LeaderData, LocationData, PredictionNodeData, SpiceCardData, TokenNodeData,
+        TreacheryCardData, TreacheryDeckData,
+    },
+};
 
-pub(crate) struct Data {
-    pub leaders: Vec<Leader>,
-    pub locations: Vec<Location>,
-    pub treachery_cards: Vec<TreacheryCard>,
-    pub spice_cards: Vec<SpiceCard>,
-    pub camera_nodes: CameraNodes,
-    pub prediction_nodes: PredictionNodes,
+pub struct Data {
+    pub leaders: HashMap<Leader, LeaderData>,
+    pub locations: HashMap<Location, LocationData>,
+    pub factions: HashMap<Faction, FactionData>,
+    pub treachery_cards: HashMap<TreacheryCard, TreacheryCardData>,
+    pub treachery_deck: Vec<TreacheryDeckData>,
+    pub spice_cards: HashMap<SpiceCard, SpiceCardData>,
+    pub camera_nodes: CameraNodeData,
+    pub prediction_nodes: PredictionNodeData,
     pub traitor_nodes: Vec<Vec2>,
-    pub token_nodes: TokenNodes,
-    pub ui_structure: UiStructure,
+    pub token_nodes: TokenNodeData,
 }
 
 impl Default for Data {
     fn default() -> Self {
-        let locations = ron::de::from_reader(File::open("data/locations.ron").unwrap()).unwrap();
-        let leaders = ron::de::from_reader(File::open("data/leaders.ron").unwrap()).unwrap();
-        let treachery_cards =
-            ron::de::from_reader(File::open("data/treachery.ron").unwrap()).unwrap();
-        let spice_cards = ron::de::from_reader(File::open("data/spice.ron").unwrap()).unwrap();
-        let camera_nodes =
-            ron::de::from_reader(File::open("data/camera_nodes.ron").unwrap()).unwrap();
-        let prediction_nodes =
-            ron::de::from_reader(File::open("data/prediction_nodes.ron").unwrap()).unwrap();
-        let traitor_nodes =
-            ron::de::from_reader(File::open("data/traitor_nodes.ron").unwrap()).unwrap();
-        let token_nodes =
-            ron::de::from_reader(File::open("data/token_nodes.ron").unwrap()).unwrap();
-        let ui_structure = ron::de::from_reader(File::open("data/ui.ron").unwrap()).unwrap();
+        use ron::de::from_reader;
         Data {
-            locations,
-            leaders,
-            treachery_cards,
-            spice_cards,
-            camera_nodes,
-            prediction_nodes,
-            traitor_nodes,
-            token_nodes,
-            ui_structure,
+            locations: ron::de::from_reader(File::open("data/locations.ron").unwrap()).unwrap(),
+            leaders: from_reader(File::open("data/leaders.ron").unwrap()).unwrap(),
+            factions: from_reader(File::open("data/factions.ron").unwrap()).unwrap(),
+            treachery_cards: from_reader(File::open("data/treachery_cards.ron").unwrap()).unwrap(),
+            treachery_deck: from_reader(File::open("data/treachery_deck.ron").unwrap()).unwrap(),
+            spice_cards: from_reader(File::open("data/spice_cards.ron").unwrap()).unwrap(),
+            camera_nodes: from_reader(File::open("data/camera_nodes.ron").unwrap()).unwrap(),
+            prediction_nodes: from_reader(File::open("data/prediction_nodes.ron").unwrap()).unwrap(),
+            traitor_nodes: from_reader(File::open("data/traitor_nodes.ron").unwrap()).unwrap(),
+            token_nodes: from_reader(File::open("data/token_nodes.ron").unwrap()).unwrap(),
         }
     }
 }
 
-pub(crate) struct Info {
+pub struct Info {
     pub turn: i32,
     pub me: Option<Entity>,
-    pub players: Vec<String>,
+    pub players: HashMap<Entity, String>,
     pub factions_in_play: Vec<Faction>,
     pub current_turn: usize,
     pub active_player: Option<Entity>,
     pub play_order: Vec<Entity>,
     pub default_clickables: Vec<Entity>,
-    pub context: Context,
 }
 
 impl Default for Info {
@@ -63,13 +57,12 @@ impl Default for Info {
         Info {
             turn: 0,
             me: None,
-            players: Vec::new(),
+            players: HashMap::new(),
             factions_in_play: Vec::new(),
             current_turn: 0,
             active_player: None,
             play_order: Vec::new(),
             default_clickables: Vec::new(),
-            context: Context::None,
         }
     }
 }
@@ -83,11 +76,9 @@ impl Info {
         self.active_player = None;
         self.play_order = Vec::new();
         self.default_clickables = Vec::new();
-        self.context = Context::None;
     }
 
     pub fn get_active_player(&self) -> Entity {
-        self.active_player
-            .unwrap_or(self.play_order[self.current_turn])
+        self.active_player.unwrap_or(self.play_order[self.current_turn])
     }
 }

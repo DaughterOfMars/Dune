@@ -12,7 +12,7 @@ const UI_Z: f32 = 0.1;
 const SPEED_MOD: f32 = 1.0;
 
 #[derive(Copy, Clone)]
-pub(crate) enum LerpType {
+pub enum LerpType {
     UI {
         src: Option<UITransform>,
         dest: UITransform,
@@ -41,10 +41,7 @@ impl LerpType {
     }
 
     pub fn ui_from_to(src: UITransform, dest: UITransform) -> Self {
-        LerpType::UI {
-            src: Some(src),
-            dest,
-        }
+        LerpType::UI { src: Some(src), dest }
     }
 
     pub fn world_to(dest: Transform) -> Self {
@@ -52,10 +49,7 @@ impl LerpType {
     }
 
     pub fn world_from_to(src: Transform, dest: Transform) -> Self {
-        LerpType::World {
-            src: Some(src),
-            dest,
-        }
+        LerpType::World { src: Some(src), dest }
     }
 
     pub fn world_to_ui(dest: UITransform) -> Self {
@@ -74,8 +68,8 @@ impl LerpType {
     }
 }
 
-#[derive(Copy, Clone)]
-pub(crate) struct Lerp {
+#[derive(Copy, Clone, Component)]
+pub struct Lerp {
     lerp_type: LerpType,
     src: Option<Transform>,
     dest: Option<Transform>,
@@ -109,7 +103,7 @@ impl Lerp {
 }
 
 #[derive(Default, Copy, Clone)]
-pub(crate) struct UITransform {
+pub struct UITransform {
     translation: Vec2,
     rotation: Quat,
     scale: f32,
@@ -175,23 +169,20 @@ impl From<(Vec2, Quat)> for UITransform {
 
 impl From<(Vec2, Quat, f32)> for UITransform {
     fn from((v, q, s): (Vec2, Quat, f32)) -> Self {
-        UITransform::from_translation(v)
-            .with_rotation(q)
-            .with_scale(s)
+        UITransform::from_translation(v).with_rotation(q).with_scale(s)
     }
 }
 
-pub(crate) struct LerpPlugin;
+pub struct LerpPlugin;
 
 impl Plugin for LerpPlugin {
-    fn build(&self, app: &mut AppBuilder) {
-        app.add_system(camera_system.system())
-            .add_system(lerp_system.system());
+    fn build(&self, app: &mut App) {
+        app.add_system(camera_system).add_system(lerp_system);
     }
 }
 
 fn lerp_system(
-    commands: &mut Commands,
+    mut commands: Commands,
     time: Res<Time>,
     cameras: Query<(&Transform, &Camera), Without<OrthographicProjection>>,
     mut lerps: Query<(Entity, &mut Lerp, &mut Transform), Without<Camera>>,
@@ -206,17 +197,16 @@ fn lerp_system(
                                 Transform::from_translation(screen_to_world(
                                     src.translation.extend(UI_Z),
                                     *cam_transform,
-                                    camera.projection_matrix,
-                                )) * Transform::from_rotation(
-                                    cam_transform.rotation * src.rotation,
-                                ) * Transform::from_scale(Vec3::splat(UI_SCALE * src.scale)),
+                                    camera.projection_matrix(),
+                                )) * Transform::from_rotation(cam_transform.rotation * src.rotation)
+                                    * Transform::from_scale(Vec3::splat(UI_SCALE * src.scale)),
                             );
                         }
                         lerp.dest = Some(
                             Transform::from_translation(screen_to_world(
                                 dest.translation.extend(UI_Z),
                                 *cam_transform,
-                                camera.projection_matrix,
+                                camera.projection_matrix(),
                             )) * Transform::from_rotation(cam_transform.rotation * dest.rotation)
                                 * Transform::from_scale(Vec3::splat(UI_SCALE * dest.scale)),
                         );
@@ -233,10 +223,9 @@ fn lerp_system(
                                 Transform::from_translation(screen_to_world(
                                     src.translation.extend(UI_Z),
                                     *cam_transform,
-                                    camera.projection_matrix,
-                                )) * Transform::from_rotation(
-                                    cam_transform.rotation * src.rotation,
-                                ) * Transform::from_scale(Vec3::splat(UI_SCALE * src.scale)),
+                                    camera.projection_matrix(),
+                                )) * Transform::from_rotation(cam_transform.rotation * src.rotation)
+                                    * Transform::from_scale(Vec3::splat(UI_SCALE * src.scale)),
                             );
                         }
                     }
@@ -249,7 +238,7 @@ fn lerp_system(
                             Transform::from_translation(screen_to_world(
                                 dest.translation.extend(UI_Z),
                                 *cam_transform,
-                                camera.projection_matrix,
+                                camera.projection_matrix(),
                             )) * Transform::from_rotation(cam_transform.rotation * dest.rotation)
                                 * Transform::from_scale(Vec3::splat(UI_SCALE * dest.scale)),
                         );
@@ -268,7 +257,7 @@ fn lerp_system(
                 if lerp.time <= 0.0 {
                     *transform = dest;
 
-                    commands.remove_one::<Lerp>(entity);
+                    commands.entity(entity).remove::<Lerp>();
                 } else {
                     let mut lerp_amount = (lerp.animation_time - lerp.time) / lerp.animation_time;
                     match lerp.lerp_type {
@@ -284,13 +273,8 @@ fn lerp_system(
                         _ => (),
                     }
 
-                    transform.translation = lerp
-                        .src
-                        .unwrap()
-                        .translation
-                        .lerp(dest.translation, lerp_amount);
-                    transform.rotation =
-                        lerp.src.unwrap().rotation.lerp(dest.rotation, lerp_amount);
+                    transform.translation = lerp.src.unwrap().translation.lerp(dest.translation, lerp_amount);
+                    transform.rotation = lerp.src.unwrap().rotation.lerp(dest.rotation, lerp_amount);
                     transform.scale = lerp.src.unwrap().scale.lerp(dest.scale, lerp_amount);
 
                     lerp.time -= time.delta_seconds() * SPEED_MOD;
@@ -301,7 +285,7 @@ fn lerp_system(
 }
 
 fn camera_system(
-    commands: &mut Commands,
+    mut commands: Commands,
     time: Res<Time>,
     mut cameras: Query<(Entity, &mut Lerp, &mut Transform), With<Camera>>,
 ) {
@@ -313,25 +297,18 @@ fn camera_system(
             if lerp.time <= 0.0 {
                 *transform = Transform::from_translation(dest.pos).looking_at(dest.at, dest.up);
 
-                commands.remove_one::<Lerp>(entity);
+                commands.entity(entity).remove::<Lerp>();
             } else {
-                let dest_transform =
-                    Transform::from_translation(dest.pos).looking_at(dest.at, dest.up);
+                let dest_transform = Transform::from_translation(dest.pos).looking_at(dest.at, dest.up);
                 let mut lerp_amount = PI * (lerp.animation_time - lerp.time) / lerp.animation_time;
                 lerp_amount = -0.5 * lerp_amount.cos() + 0.5;
-                transform.translation = src
-                    .unwrap()
-                    .translation
-                    .lerp(dest_transform.translation, lerp_amount);
-                transform.rotation = src
-                    .unwrap()
-                    .rotation
-                    .lerp(dest_transform.rotation, lerp_amount);
+                transform.translation = src.unwrap().translation.lerp(dest_transform.translation, lerp_amount);
+                transform.rotation = src.unwrap().rotation.lerp(dest_transform.rotation, lerp_amount);
 
                 lerp.time -= time.delta_seconds() * SPEED_MOD;
             }
         } else {
-            commands.remove_one::<Lerp>(entity);
+            commands.entity(entity).remove::<Lerp>();
         }
     }
 }
