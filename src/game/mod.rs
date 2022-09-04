@@ -1,15 +1,9 @@
 mod phases;
 mod systems;
 
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    f32::consts::PI,
-    hash::Hash,
-    mem::Discriminant,
-};
+use std::{collections::HashMap, hash::Hash};
 
 use bevy::{
-    ecs::system::Resource,
     prelude::*,
     render::camera::{Camera, OrthographicProjection},
 };
@@ -20,10 +14,10 @@ use self::{
     systems::*,
 };
 use crate::{
-    components::{Deck, Disorganized, LocationSector, Player, Prediction, Spice, Storm, Troop, Unique, UniqueBundle},
+    components::{Deck, Disorganized, LocationSector, Player, Troop, Unique},
     lerper::{Lerp, LerpType},
     resources::{Data, Info},
-    util::{card_jitter, divide_spice, hand_positions, shuffle_deck},
+    util::card_jitter,
     Screen,
 };
 
@@ -31,7 +25,7 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.add_system_set(State::<Phase>::get_driver());
+        app.add_state(Phase::Setup(SetupPhase::ChooseFactions));
 
         app.add_system_set(
             SystemSet::on_update(Screen::Game)
@@ -66,38 +60,34 @@ pub enum Phase {
     EndGame,
 }
 
-// impl Phase {
-//     pub fn next(&self) -> Self {
-//         match self {
-//             Phase::Setup(subphase) => match subphase {
-//                 SetupPhase::ChooseFactions => Phase::Setup(SetupPhase::Prediction),
-//                 SetupPhase::Prediction => Phase::Setup(SetupPhase::AtStart),
-//                 SetupPhase::AtStart => Phase::Setup(SetupPhase::DealTraitors),
-//                 SetupPhase::DealTraitors => Phase::Setup(SetupPhase::PickTraitors),
-//                 SetupPhase::PickTraitors => Phase::Setup(SetupPhase::DealTreachery),
-//                 SetupPhase::DealTreachery => Phase::Storm(StormPhase::Reveal),
-//             },
-//             Phase::Storm(subphase) => match subphase {
-//                 StormPhase::Reveal => Phase::Storm(StormPhase::WeatherControl),
-//                 StormPhase::WeatherControl => Phase::Storm(StormPhase::FamilyAtomics),
-//                 StormPhase::FamilyAtomics => Phase::Storm(StormPhase::MoveStorm),
-//                 StormPhase::MoveStorm => Phase::SpiceBlow,
-//             },
-//             Phase::SpiceBlow => Phase::Nexus,
-//             Phase::Nexus => Phase::Bidding,
-//             Phase::Bidding => Phase::Revival,
-//             Phase::Revival => Phase::Movement,
-//             Phase::Movement => Phase::Battle,
-//             Phase::Battle => Phase::Collection,
-//             Phase::Collection => Phase::Control,
-//             Phase::Control => Phase::Storm(StormPhase::Reveal),
-//             Phase::EndGame => Phase::EndGame,
-//         }
-//     }
-// }
-
-fn init_game(mut commands: Commands) {
-    commands.insert_resource(State::new(Phase::Setup(SetupPhase::ChooseFactions)));
+impl Phase {
+    pub fn next(&self) -> Self {
+        match self {
+            Phase::Setup(subphase) => match subphase {
+                SetupPhase::ChooseFactions => Phase::Setup(SetupPhase::Prediction),
+                SetupPhase::Prediction => Phase::Setup(SetupPhase::AtStart),
+                SetupPhase::AtStart => Phase::Setup(SetupPhase::DealTraitors),
+                SetupPhase::DealTraitors => Phase::Setup(SetupPhase::PickTraitors),
+                SetupPhase::PickTraitors => Phase::Setup(SetupPhase::DealTreachery),
+                SetupPhase::DealTreachery => Phase::Storm(StormPhase::Reveal),
+            },
+            Phase::Storm(subphase) => match subphase {
+                StormPhase::Reveal => Phase::Storm(StormPhase::WeatherControl),
+                StormPhase::WeatherControl => Phase::Storm(StormPhase::FamilyAtomics),
+                StormPhase::FamilyAtomics => Phase::Storm(StormPhase::MoveStorm),
+                StormPhase::MoveStorm => Phase::SpiceBlow,
+            },
+            Phase::SpiceBlow => Phase::Nexus,
+            Phase::Nexus => Phase::Bidding,
+            Phase::Bidding => Phase::Revival,
+            Phase::Revival => Phase::Movement,
+            Phase::Movement => Phase::Battle,
+            Phase::Battle => Phase::Collection,
+            Phase::Collection => Phase::Control,
+            Phase::Control => Phase::Storm(StormPhase::Reveal),
+            Phase::EndGame => Phase::EndGame,
+        }
+    }
 }
 
 fn reset_system() {

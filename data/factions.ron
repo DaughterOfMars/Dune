@@ -3,7 +3,7 @@
         name: "Atreides",
         starting_values: (
             units: 10,
-            possible_locations: [Arrakeen],
+            possible_locations: Some([Arrakeen]),
             spice: 10,
         )
     ),
@@ -18,7 +18,7 @@
         name: "Fremen",
         starting_values: (
             units: 10,
-            possible_locations: [SietchTabr, FalseWallSouth, FalseWallEast],
+            possible_locations: Some([SietchTabr, FalseWallSouth, FalseWallEast]),
             spice: 10,
         )
     ),
@@ -33,7 +33,7 @@
         name: "Spacing Guild",
         starting_values: (
             units: 5,
-            possible_locations: [TueksSietch],
+            possible_locations: Some([TueksSietch]),
             spice: 5,
         )
     ),
@@ -41,7 +41,7 @@
         name: "Harkonnen",
         starting_values: (
             units: 10,
-            possible_locations: [Carthag],
+            possible_locations: Some([Carthag]),
             spice: 10,
         )
     ),

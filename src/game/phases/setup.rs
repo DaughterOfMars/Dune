@@ -1,14 +1,14 @@
-use bevy::prelude::*;
+use bevy::{math::vec3, prelude::*};
 use bevy_mod_picking::PickableBundle;
 use rand::prelude::IteratorRandom;
 
 use crate::{
     components::{
-        Active, Faction, FactionPredictionCard, Player, Prediction, Spice, Troop, TurnPredictionCard, UniqueBundle,
+        Active, Faction, FactionPredictionCard, Player, Prediction, Spice, Troop, TurnPredictionCard, Unique,
     },
     resources::{Data, Info},
     util::divide_spice,
-    ScreenEntity,
+    GameEntity,
 };
 
 pub struct SetupPlugin;
@@ -70,9 +70,12 @@ pub fn init_factions(
         let shield_back_material = materials.add(StandardMaterial::from(shield_back_texture));
 
         commands
-            .spawn_bundle(UniqueBundle::new(faction))
+            .spawn_bundle(SpatialBundle::from_transform(Transform::from_translation(vec3(
+                0.0, 0.27, 1.34,
+            ))))
+            .insert(Unique::new(faction))
             .insert_bundle(PickableBundle::default())
-            .insert(ScreenEntity)
+            .insert(GameEntity)
             .insert(data.camera_nodes.shield)
             .with_children(|parent| {
                 parent.spawn_bundle(PbrBundle {
@@ -92,9 +95,10 @@ pub fn init_factions(
         let prediction_front_material = materials.add(StandardMaterial::from(prediction_front_texture));
 
         commands
-            .spawn_bundle(UniqueBundle::new(Faction::BeneGesserit))
+            .spawn_bundle(SpatialBundle::default())
+            .insert(Unique::new(Faction::BeneGesserit))
             .insert_bundle(PickableBundle::default())
-            .insert(ScreenEntity)
+            .insert(GameEntity)
             .insert(FactionPredictionCard { faction })
             .with_children(|parent| {
                 parent.spawn_bundle(PbrBundle {
@@ -113,9 +117,12 @@ pub fn init_factions(
             let texture = asset_server.get_handle(format!("leaders/{}.png", leader_data.texture).as_str());
             let material = materials.add(StandardMaterial::from(texture));
             commands
-                .spawn_bundle(UniqueBundle::new(faction))
+                .spawn_bundle(SpatialBundle::from_transform(Transform::from_translation(
+                    data.token_nodes.leaders[i],
+                )))
+                .insert(Unique::new(faction))
                 .insert_bundle(PickableBundle::default())
-                .insert(ScreenEntity)
+                .insert(GameEntity)
                 .with_children(|parent| {
                     parent.spawn_bundle(PbrBundle {
                         mesh: big_token.clone(),
@@ -130,9 +137,12 @@ pub fn init_factions(
 
         for i in 0..20 {
             commands
-                .spawn_bundle(UniqueBundle::new(faction))
+                .spawn_bundle(SpatialBundle::from_transform(Transform::from_translation(
+                    data.token_nodes.fighters[0] + (i as f32 * 0.0036 * Vec3::Y),
+                )))
+                .insert(Unique::new(faction))
                 .insert_bundle(PickableBundle::default())
-                .insert(ScreenEntity)
+                .insert(GameEntity)
                 .insert(Troop {
                     value: 1,
                     location: None,
@@ -171,9 +181,12 @@ pub fn init_factions(
                 _ => spice_10_material.clone(),
             };
             commands
-                .spawn_bundle(UniqueBundle::new(faction))
+                .spawn_bundle(SpatialBundle::from_transform(Transform::from_translation(
+                    data.token_nodes.spice[s] + (i as f32 * 0.0036 * Vec3::Y),
+                )))
+                .insert(Unique::new(faction))
                 .insert_bundle(PickableBundle::default())
-                .insert(ScreenEntity)
+                .insert(GameEntity)
                 .insert(Spice { value })
                 .with_children(|parent| {
                     parent.spawn_bundle(PbrBundle {
@@ -190,9 +203,10 @@ pub fn init_factions(
             asset_server.get_handle(format!("predictions/prediction_t{}.png", turn).as_str());
         let prediction_front_material = materials.add(StandardMaterial::from(prediction_front_texture));
         commands
-            .spawn_bundle(UniqueBundle::new(Faction::BeneGesserit))
+            .spawn_bundle(SpatialBundle::default())
+            .insert(Unique::new(Faction::BeneGesserit))
             .insert_bundle(PickableBundle::default())
-            .insert(ScreenEntity)
+            .insert(GameEntity)
             .insert(TurnPredictionCard { turn })
             .with_children(|parent| {
                 parent.spawn_bundle(PbrBundle {
@@ -240,7 +254,7 @@ pub fn pick_factions(
     let mut rng = rand::thread_rng();
 
     let faction = factions.choose(&mut rng).unwrap();
-    let mut e = commands.spawn_bundle((faction, ScreenEntity));
+    let mut e = commands.spawn_bundle((faction, GameEntity));
 
     if faction == Faction::BeneGesserit {
         e.insert(Prediction {

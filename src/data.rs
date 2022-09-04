@@ -41,7 +41,7 @@ pub struct LocationData {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct LocationNodes {
     pub vertices: Vec<Vec3>,
-    pub indices: Vec<i32>,
+    pub indices: Vec<u32>,
     pub fighters: Vec<Vec3>,
 }
 

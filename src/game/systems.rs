@@ -1,10 +1,7 @@
-use rand::{prelude::SliceRandom, Rng};
-
 use super::*;
 use crate::{
-    components::{Card, Deck, Faction},
+    components::{Active, Faction},
     data::FactionStartingValues,
-    util::card_jitter,
 };
 
 pub fn trigger_stack_troops(
@@ -69,6 +66,7 @@ pub fn phase_text_system(
     data: Res<Data>,
     info: Res<Info>,
     players: Query<&Faction, With<Player>>,
+    active_player: Query<Entity, (With<Player>, With<Active>)>,
     mut text: Query<&mut Text, With<PhaseText>>,
 ) {
     if phase.is_changed() {
@@ -79,7 +77,7 @@ pub fn phase_text_system(
                 SetupPhase::AtStart => format!(
                     "{:?} Initial Placement...",
                     data.factions
-                        .get(players.get(info.get_active_player()).unwrap())
+                        .get(players.get(active_player.single()).unwrap())
                         .unwrap()
                         .name
                 ),

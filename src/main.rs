@@ -11,14 +11,18 @@ use std::{collections::HashMap, f32::consts::PI};
 
 use bevy::{
     asset::LoadState,
-    math::{uvec2, uvec3},
+    math::{uvec2, vec3},
     prelude::*,
-    render::camera::{PerspectiveProjection, Projection, Viewport},
+    render::{
+        camera::{PerspectiveProjection, Projection, Viewport},
+        mesh::Indices,
+        render_resource::PrimitiveTopology,
+    },
     utils::default,
     window::{WindowId, WindowResized},
 };
 use bevy_inspector_egui::WorldInspectorPlugin;
-use bevy_mod_picking::{DefaultPickingPlugins, PickableBundle};
+use bevy_mod_picking::{DefaultPickingPlugins, PickableBundle, PickingCameraBundle};
 
 use self::{components::*, game::*, input::GameInputPlugin, lerper::LerpPlugin, resources::*, util::card_jitter};
 
@@ -30,7 +34,7 @@ pub enum Screen {
 }
 
 #[derive(Component)]
-struct ScreenEntity;
+struct GameEntity;
 
 #[derive(Default)]
 struct LoadingAssets {
@@ -45,20 +49,23 @@ fn main() {
         .init_resource::<Info>()
         .init_resource::<LoadingAssets>();
 
-    app.add_startup_system(init_camera).add_system(set_camera_viewports);
+    app.add_state(Screen::Loading);
 
-    app.add_state(Screen::MainMenu);
+    app.add_startup_system(init_camera)
+        .add_system(set_camera_viewports)
+        .add_system(set_camera_active);
 
     app.add_plugins(DefaultPlugins)
         .add_plugin(WorldInspectorPlugin::new())
-        .add_plugin(GameInputPlugin)
-        .add_plugin(GamePlugin)
-        .add_plugin(LerpPlugin)
+        //.add_plugin(GameInputPlugin)
+        //.add_plugin(GamePlugin)
+        //.add_plugin(LerpPlugin)
         .add_plugins(DefaultPickingPlugins);
 
     app.add_system_set(SystemSet::on_enter(Screen::Loading).with_system(init_loading_game))
         .add_system_set(SystemSet::on_update(Screen::Loading).with_system(load_game))
-        .add_system_set(SystemSet::on_exit(Screen::Loading).with_system(tear_down));
+        .add_system_set(SystemSet::on_exit(Screen::Loading).with_system(tear_down))
+        .add_system_set(SystemSet::on_enter(Screen::Game).with_system(init_game));
 
     app.run();
 }
@@ -75,17 +82,32 @@ fn init_camera(mut commands: Commands) {
         ..default()
     }
     .into();
-    let trans = Transform::from_translation(Vec3::new(0.0, 2.5, 2.0)).looking_at(Vec3::ZERO, Vec3::Y)
-        * Transform::from_translation(Vec3::new(0.0, -0.4, 0.0));
-    for index in 0..6 {
+    let trans = Transform::from_translation(vec3(0.0, 2.5, 2.0)).looking_at(Vec3::ZERO, Vec3::Y)
+        * Transform::from_translation(vec3(0.0, -0.4, 0.0));
+    commands
+        .spawn_bundle(Camera3dBundle {
+            projection: proj.clone(),
+            transform: trans,
+            ..default()
+        })
+        .insert(UiCameraConfig::default())
+        .insert(CameraPosition { index: 0 })
+        .insert_bundle(PickingCameraBundle::default())
+        .insert(Active);
+    for index in 1..6 {
         commands
             .spawn_bundle(Camera3dBundle {
                 projection: proj.clone(),
                 transform: trans,
+                camera: Camera {
+                    priority: index as _,
+                    ..default()
+                },
                 ..default()
             })
             .insert(UiCameraConfig::default())
-            .insert(CameraPosition { index });
+            .insert(CameraPosition { index })
+            .insert_bundle(PickingCameraBundle::default());
     }
 }
 
@@ -125,8 +147,11 @@ fn set_camera_viewports(
                     5 => (2, 1, false),
                     _ => unreachable!(),
                 };
-                let physical_size = uvec2(window.physical_height() / rows, window.physical_width() / cols);
-                let physical_position = uvec2(col * physical_size.x, row * physical_size.y);
+                let physical_size = uvec2(window.physical_width() / cols, window.physical_height() / rows);
+                let physical_position = uvec2(
+                    col * physical_size.x + center.then_some(physical_size.x / 2).unwrap_or_default(),
+                    row * physical_size.y,
+                );
                 camera.viewport.replace(Viewport {
                     physical_position,
                     physical_size,
@@ -137,6 +162,12 @@ fn set_camera_viewports(
     }
 }
 
+fn set_camera_active(mut cams: Query<(&mut Camera, Option<&Active>)>) {
+    for (mut cam, active) in cams.iter_mut() {
+        cam.is_active = active.is_some();
+    }
+}
+
 #[derive(Component)]
 struct LoadingBar;
 
@@ -144,7 +175,6 @@ fn init_loading_game(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut loading_assets: ResMut<LoadingAssets>,
-    mut colors: ResMut<Assets<ColorMaterial>>,
 ) {
     loading_assets.assets = asset_server.load_folder(".").unwrap();
 
@@ -159,7 +189,7 @@ fn init_loading_game(
             },
             ..default()
         })
-        .insert(ScreenEntity)
+        .insert(GameEntity)
         .with_children(|parent| {
             parent
                 .spawn_bundle(NodeBundle {
@@ -208,47 +238,41 @@ fn load_game(
             Val::Percent(100.0 * (*counts.entry("loaded").or_insert(0) as f32 / loading_assets.assets.len() as f32));
     });
     if *counts.entry("loading").or_insert(0) == 0 {
-        state.set(Screen::MainMenu).unwrap();
+        state.set(Screen::Game).unwrap();
     }
 }
 
 fn init_game(
     mut commands: Commands,
     data: Res<Data>,
-    mut info: ResMut<Info>,
     asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut colors: ResMut<Assets<ColorMaterial>>,
 ) {
     // Light
-    // commands
-    //     .spawn_bundle(PointLightBundle {
-    //         transform: Transform::from_translation(Vec3::new(10.0, 10.0, 10.0)),
-    //         ..default()
-    //     })
-    //     .insert(ScreenEntity);
+    commands
+        .spawn_bundle(PointLightBundle {
+            transform: Transform::from_translation(vec3(10.0, 10.0, 10.0)),
+            ..default()
+        })
+        .insert(GameEntity);
 
     commands.insert_resource(AmbientLight {
         color: Color::WHITE,
         brightness: 0.2,
     });
 
-    commands.spawn_bundle((Storm::default(),)).insert(ScreenEntity);
+    commands.spawn_bundle((Storm::default(),)).insert(GameEntity);
 
     // Board
-    info.default_clickables.push(
-        commands
-            .spawn_bundle(PickableBundle::default())
-            .insert(ScreenEntity)
-            .insert(data.camera_nodes.board)
-            .with_children(|parent| {
-                parent.spawn_bundle(DynamicSceneBundle {
-                    scene: asset_server.get_handle("board.gltf"),
-                    ..default()
-                });
-            })
-            .id(),
-    );
+    commands
+        .spawn_bundle(SceneBundle {
+            scene: asset_server.get_handle("board.gltf#Scene0"),
+            ..default()
+        })
+        .insert_bundle(PickableBundle::default())
+        .insert(GameEntity)
+        .insert(data.camera_nodes.board);
 
     commands
         .spawn_bundle(TextBundle {
@@ -272,27 +296,37 @@ fn init_game(
             ),
             ..default()
         })
-        .insert(ScreenEntity)
+        .insert(GameEntity)
         .insert(PhaseText);
 
     for (location, location_data) in data.locations.iter() {
         commands
-            .spawn()
+            .spawn_bundle(SpatialBundle::default())
             .insert(location.clone())
-            .insert(ScreenEntity)
+            .insert(GameEntity)
             .with_children(|parent| {
                 for (&sector, nodes) in location_data.sectors.iter() {
-                    // TODO spawn these shapes
-                    // let vertices = nodes.vertices.iter().map(|p| Vec3::new(p.x, 0.01, -p.y)).collect();
-                    // let indices = nodes
-                    //     .indices
-                    //     .chunks_exact(3)
-                    //     .map(|chunk| uvec3(chunk[0] as u32, chunk[1] as u32, chunk[2] as u32))
-                    //     .collect();
-                    parent.spawn_bundle(PickableBundle::default()).insert(LocationSector {
-                        location: location.clone(),
-                        sector,
-                    });
+                    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList);
+                    mesh.insert_attribute(
+                        Mesh::ATTRIBUTE_POSITION,
+                        nodes.vertices.iter().map(|p| [p.x, 0.01, -p.y]).collect::<Vec<_>>(),
+                    );
+                    mesh.set_indices(Some(Indices::U32(nodes.indices.clone())));
+                    mesh.duplicate_vertices();
+                    mesh.compute_flat_normals();
+                    mesh.compute_aabb();
+                    parent
+                        .spawn_bundle(PbrBundle {
+                            mesh: meshes.add(mesh),
+                            material: materials.add(StandardMaterial::from(Color::rgba(1.0, 1.0, 1.0, 0.0))),
+                            visibility: Visibility { is_visible: true },
+                            ..default()
+                        })
+                        .insert_bundle(PickableBundle::default())
+                        .insert(LocationSector {
+                            location: location.clone(),
+                            sector,
+                        });
                 }
             });
 
@@ -308,13 +342,11 @@ fn init_game(
     let treachery_back_material = materials.add(StandardMaterial::from(treachery_back_texture));
 
     commands
-        .spawn()
-        .insert(Deck(vec![]))
-        .insert(
-            Transform::from_translation(Vec3::new(1.23, 0.0049, -0.87))
+        .spawn_bundle((Deck(vec![]),))
+        .insert_bundle(SpatialBundle::from_transform(
+            Transform::from_translation(vec3(1.23, 0.0049, -0.87))
                 * Transform::from_rotation(Quat::from_rotation_z(PI)),
-        )
-        .insert(GlobalTransform::default())
+        ))
         .with_children(|parent| {
             for (i, card_data) in data.treachery_deck.iter().enumerate() {
                 let treachery_front_texture =
@@ -322,12 +354,10 @@ fn init_game(
                 let treachery_front_material = materials.add(StandardMaterial::from(treachery_front_texture));
 
                 parent
-                    .spawn()
-                    .insert(Card)
-                    .insert(card_data.card.clone())
-                    .insert(Transform::from_translation(Vec3::Y * 0.001 * (i as f32)) * card_jitter())
-                    .insert(GlobalTransform::default())
-                    .insert(ScreenEntity)
+                    .spawn_bundle((Card, card_data.card.clone(), GameEntity))
+                    .insert_bundle(SpatialBundle::from_transform(
+                        Transform::from_translation(Vec3::Y * 0.001 * (i as f32)) * card_jitter(),
+                    ))
                     .with_children(|parent| {
                         parent.spawn_bundle(PbrBundle {
                             mesh: card_face.clone(),
@@ -347,11 +377,9 @@ fn init_game(
     let traitor_back_material = materials.add(StandardMaterial::from(traitor_back_texture));
 
     commands
-        .spawn_bundle((
-            Deck(vec![]),
-            Transform::from_translation(Vec3::new(1.23, 0.0049, -0.3))
-                * Transform::from_rotation(Quat::from_rotation_z(PI)),
-            GlobalTransform::default(),
+        .spawn_bundle((Deck(vec![]),))
+        .insert_bundle(SpatialBundle::from_transform(
+            Transform::from_translation(vec3(1.23, 0.0049, -0.3)) * Transform::from_rotation(Quat::from_rotation_z(PI)),
         ))
         .with_children(|parent| {
             for (i, (leader, leader_data)) in data.leaders.iter().enumerate() {
@@ -360,13 +388,11 @@ fn init_game(
                 let traitor_front_material = materials.add(StandardMaterial::from(traitor_front_texture));
 
                 parent
-                    .spawn_bundle((
-                        Card,
-                        TraitorCard { leader: leader.clone() },
+                    .spawn_bundle((Card, TraitorCard { leader: leader.clone() }))
+                    .insert_bundle(SpatialBundle::from_transform(
                         Transform::from_translation(Vec3::Y * 0.001 * (i as f32)) * card_jitter(),
-                        GlobalTransform::default(),
                     ))
-                    .insert(ScreenEntity)
+                    .insert(GameEntity)
                     .with_children(|parent| {
                         parent.spawn_bundle(PbrBundle {
                             mesh: card_face.clone(),
@@ -386,12 +412,12 @@ fn init_game(
     let spice_back_material = materials.add(StandardMaterial::from(spice_back_texture));
 
     commands
-        .spawn_bundle((
-            Deck(vec![]),
-            Transform::from_translation(Vec3::new(1.23, 0.0049, 0.3))
+        .spawn_bundle((Deck(vec![]),))
+        .insert_bundle(SpatialBundle {
+            transform: Transform::from_translation(vec3(1.23, 0.0049, 0.3))
                 * Transform::from_rotation(Quat::from_rotation_z(PI)),
-            GlobalTransform::default(),
-        ))
+            ..default()
+        })
         .with_children(|parent| {
             for (i, (card, card_data)) in data.spice_cards.iter().enumerate() {
                 let spice_front_texture =
@@ -399,13 +425,11 @@ fn init_game(
                 let spice_front_material = materials.add(StandardMaterial::from(spice_front_texture));
 
                 parent
-                    .spawn_bundle((
-                        Card,
-                        card.clone(),
+                    .spawn_bundle((Card, card.clone()))
+                    .insert_bundle(SpatialBundle::from_transform(
                         Transform::from_translation(Vec3::Y * 0.001 * (i as f32)) * card_jitter(),
-                        GlobalTransform::default(),
                     ))
-                    .insert(ScreenEntity)
+                    .insert(GameEntity)
                     .with_children(|parent| {
                         parent.spawn_bundle(PbrBundle {
                             mesh: card_face.clone(),
@@ -425,11 +449,9 @@ fn init_game(
     let storm_back_material = materials.add(StandardMaterial::from(storm_back_texture));
 
     commands
-        .spawn_bundle((
-            Deck(vec![]),
-            Transform::from_translation(Vec3::new(1.23, 0.0049, 0.87))
-                * Transform::from_rotation(Quat::from_rotation_z(PI)),
-            GlobalTransform::default(),
+        .spawn_bundle((Deck(vec![]),))
+        .insert_bundle(SpatialBundle::from_transform(
+            Transform::from_translation(vec3(1.23, 0.0049, 0.87)) * Transform::from_rotation(Quat::from_rotation_z(PI)),
         ))
         .with_children(|parent| {
             for val in 1..=6 {
@@ -437,13 +459,11 @@ fn init_game(
                 let storm_front_material = materials.add(StandardMaterial::from(storm_front_texture));
 
                 parent
-                    .spawn_bundle((
-                        Card,
-                        StormCard { val },
+                    .spawn_bundle((Card, StormCard { val }))
+                    .insert_bundle(SpatialBundle::from_transform(
                         Transform::from_translation(Vec3::Y * 0.001 * (val as f32)) * card_jitter(),
-                        GlobalTransform::default(),
                     ))
-                    .insert(ScreenEntity)
+                    .insert(GameEntity)
                     .with_children(|parent| {
                         parent.spawn_bundle(PbrBundle {
                             mesh: card_face.clone(),
@@ -459,59 +479,54 @@ fn init_game(
             }
         });
 
-    // TODO: do something like this? Maybe just add pickers to each card I dunno
-    // let deck_shape = ShapeHandle::new(Cuboid::new(Vector3::new(0.125, 0.03, 0.18)));
-    //
-    // info.default_clickables.push(
-    //     commands
-    //         .spawn_bundle(
-    //             ColliderBundle::new(deck_shape.clone())
-    //                 .with_transform(Transform::from_translation(data.camera_nodes.treachery.at)),
-    //         )
-    //         .insert(ScreenEntity)
-    //         .insert(data.camera_nodes.treachery)
-    //         .current_entity()
-    //         .unwrap(),
-    // );
-    //
-    // info.default_clickables.push(
-    //     commands
-    //         .spawn_bundle(
-    //             ColliderBundle::new(deck_shape.clone())
-    //                 .with_transform(Transform::from_translation(data.camera_nodes.traitor.at)),
-    //         )
-    //         .insert(ScreenEntity)
-    //         .insert(data.camera_nodes.traitor)
-    //         .current_entity()
-    //         .unwrap(),
-    // );
-    //
-    // info.default_clickables.push(
-    //     commands
-    //         .spawn_bundle(
-    //             ColliderBundle::new(deck_shape.clone())
-    //                 .with_transform(Transform::from_translation(data.camera_nodes.spice.at)),
-    //         )
-    //         .insert(ScreenEntity)
-    //         .insert(data.camera_nodes.spice)
-    //         .current_entity()
-    //         .unwrap(),
-    // );
-    //
-    // info.default_clickables.push(
-    //     commands
-    //         .spawn_bundle(
-    //
-    // ColliderBundle::new(deck_shape).with_transform(Transform::from_translation(data.camera_nodes.storm.at)),
-    //         )
-    //         .insert(ScreenEntity)
-    //         .insert(data.camera_nodes.storm)
-    //         .current_entity()
-    //         .unwrap(),
-    // );
+    let deck_mesh = meshes.add(Mesh::from(shape::Box::new(0.25, 0.06, 0.36)));
+
+    commands
+        .spawn_bundle(PbrBundle {
+            mesh: deck_mesh.clone(),
+            visibility: Visibility { is_visible: false },
+            transform: Transform::from_translation(data.camera_nodes.treachery.at),
+            ..default()
+        })
+        .insert_bundle(PickableBundle::default())
+        .insert(GameEntity)
+        .insert(data.camera_nodes.treachery);
+
+    commands
+        .spawn_bundle(PbrBundle {
+            mesh: deck_mesh.clone(),
+            visibility: Visibility { is_visible: false },
+            transform: Transform::from_translation(data.camera_nodes.traitor.at),
+            ..default()
+        })
+        .insert_bundle(PickableBundle::default())
+        .insert(GameEntity)
+        .insert(data.camera_nodes.traitor);
+
+    commands
+        .spawn_bundle(PbrBundle {
+            mesh: deck_mesh.clone(),
+            visibility: Visibility { is_visible: false },
+            transform: Transform::from_translation(data.camera_nodes.spice.at),
+            ..default()
+        })
+        .insert_bundle(PickableBundle::default())
+        .insert(GameEntity)
+        .insert(data.camera_nodes.spice);
+
+    commands
+        .spawn_bundle(PbrBundle {
+            mesh: deck_mesh,
+            visibility: Visibility { is_visible: false },
+            transform: Transform::from_translation(data.camera_nodes.storm.at),
+            ..default()
+        })
+        .insert_bundle(PickableBundle::default())
+        .insert(GameEntity)
+        .insert(data.camera_nodes.storm);
 }
 
-fn tear_down(mut commands: Commands, screen_entities: Query<Entity, With<ScreenEntity>>) {
+fn tear_down(mut commands: Commands, screen_entities: Query<Entity, With<GameEntity>>) {
     for entity in screen_entities.iter() {
         commands.entity(entity).despawn_recursive();
     }

@@ -4,7 +4,7 @@
         texture: "lasgun",
     ),
     (
-        card: ProjectileWeapon,
+        card: Chrysknife,
         texture: "chrysknife",
     ),
     (

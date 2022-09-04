@@ -44,14 +44,9 @@ fn picker_system(
             PickingEvent::Clicked(clicked) => {
                 if let Some(camera) = camera.iter().next() {
                     if let Ok(camera_node) = nodes.get(*clicked) {
-                        commands.entity(camera).insert(Lerp::new(
-                            LerpType::Camera {
-                                src: None,
-                                dest: camera_node.clone(),
-                            },
-                            1.0,
-                            0.0,
-                        ));
+                        commands
+                            .entity(camera)
+                            .insert(Lerp::move_camera(camera_node.clone(), 1.0));
                     }
                 }
             }

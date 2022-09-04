@@ -1,9 +1,4 @@
-use bevy::{
-    ecs::{bundle::Bundle, entity::Entity},
-    math::Vec3,
-    prelude::Component,
-    render::view::Visibility,
-};
+use bevy::{ecs::entity::Entity, math::Vec3, prelude::Component};
 use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Component)]
@@ -52,18 +47,9 @@ pub struct Unique {
     pub public: bool,
 }
 
-#[derive(Bundle)]
-pub struct UniqueBundle {
-    unique: Unique,
-    visible: Visibility,
-}
-
-impl UniqueBundle {
+impl Unique {
     pub fn new(faction: Faction) -> Self {
-        Self {
-            unique: Unique { faction, public: false },
-            visible: Visibility { is_visible: true },
-        }
+        Self { faction, public: false }
     }
 }
 

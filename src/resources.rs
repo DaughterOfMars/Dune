@@ -42,43 +42,22 @@ impl Default for Data {
 }
 
 pub struct Info {
-    pub turn: i32,
-    pub me: Option<Entity>,
-    pub players: HashMap<Entity, String>,
-    pub factions_in_play: Vec<Faction>,
     pub current_turn: usize,
-    pub active_player: Option<Entity>,
     pub play_order: Vec<Entity>,
-    pub default_clickables: Vec<Entity>,
 }
 
 impl Default for Info {
     fn default() -> Self {
         Info {
-            turn: 0,
-            me: None,
-            players: HashMap::new(),
-            factions_in_play: Vec::new(),
             current_turn: 0,
-            active_player: None,
             play_order: Vec::new(),
-            default_clickables: Vec::new(),
         }
     }
 }
 
 impl Info {
     pub fn reset(&mut self) {
-        self.turn = 0;
-        self.me = None;
-        self.factions_in_play = Vec::new();
         self.current_turn = 0;
-        self.active_player = None;
         self.play_order = Vec::new();
-        self.default_clickables = Vec::new();
-    }
-
-    pub fn get_active_player(&self) -> Entity {
-        self.active_player.unwrap_or(self.play_order[self.current_turn])
     }
 }

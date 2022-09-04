@@ -1,77 +1,77 @@
 {
     BrokenLand: (
         name: "Broken Land",
-        location: BrokenLand,
+        location: Some(BrokenLand),
         texture: "brokenland",
     ),
     CielagoNorth: (
         name: "Cielago North",
-        location: CielagoNorth,
+        location: Some(CielagoNorth),
         texture: "cielagonorth",
     ),
     CielagoSouth: (
         name: "Cielago South",
-        location: CielagoSouth,
+        location: Some(CielagoSouth),
         texture: "cielagosouth",
     ),
     FuneralPlain: (
         name: "Funeral Plain",
-        location: FuneralPlain,
+        location: Some(FuneralPlain),
         texture: "funeralplain",
     ),
     TheGreatFlat: (
         name: "The Great Flat",
-        location: TheGreatFlat,
+        location: Some(TheGreatFlat),
         texture: "greatflat",
     ),
     HabbanyaErg: (
         name: "Habbanya Erg",
-        location: HabbanyaErg,
+        location: Some(HabbanyaErg),
         texture: "habbanyaerg",
     ),
     HabbanyaRidgeFlat: (
         name: "Habbanya Ridge Flat",
-        location: HabbanyaRidgeFlat,
+        location: Some(HabbanyaRidgeFlat),
         texture: "habbanyaridgeflat",
     ),
     HaggaBasin: (
         name: "Hagga Basin",
-        location: HaggaBasin,
+        location: Some(HaggaBasin),
         texture: "haggabasin",
     ),
     TheMinorErg: (
         name: "The Minor Erg",
-        location: TheMinorErg,
+        location: Some(TheMinorErg),
         texture: "minorerg",
     ),
     OldGap: (
         name: "Old Gap",
-        location: OldGap,
+        location: Some(OldGap),
         texture: "oldgap",
     ),
     RedChasm: (
         name: "Red Chasm",
-        location: RedChasm,
+        location: Some(RedChasm),
         texture: "redchasm",
     ),
     RockOutcroppings: (
         name: "Rock Outcroppings",
-        location: RockOutcroppings,
+        location: Some(RockOutcroppings),
         texture: "rockoutcroppings",
     ),
     SihayaRidge: (
         name: "Sihaya Ridge",
-        location: SihayaRidge,
+        location: Some(SihayaRidge),
         texture: "sihayaridge",
     ),
     SouthMesa: (
         name: "South Mesa",
-        location: SouthMesa,
+        location: Some(SouthMesa),
         texture: "southmesa",
     ),
     WindPassNorth: (
         name: "Wind Pass North",
-        location: WindPassNorth,
+        location: Some(WindPassNorth),
         texture: "windpassnorth",
     ),
     ShaiHalud: (
