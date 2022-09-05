@@ -1,10 +1,8 @@
 use bevy::render::view::RenderLayers;
+use iyes_loopless::state::CurrentState;
 
 use super::*;
-use crate::{
-    components::{Active, Faction},
-    data::FactionStartingValues,
-};
+use crate::{components::Faction, data::FactionStartingValues, Active};
 
 pub fn trigger_stack_troops(
     data: Res<Data>,
@@ -29,11 +27,9 @@ pub fn trigger_stack_troops(
             let location_data = data.locations.get(&loc_sec.location).unwrap();
             let node = location_data.sectors[&loc_sec.sector].fighters[node_ind];
             for (i, entity) in troops.iter().enumerate() {
-                commands.entity(*entity).insert(Lerp::new(
-                    LerpType::world_to(
-                        Transform::from_translation(Vec3::new(node.x, node.z, -node.y))
-                            * Transform::from_translation(i as f32 * 0.0018 * Vec3::Y),
-                    ),
+                commands.entity(*entity).insert(Lerp::world_to(
+                    Transform::from_translation(Vec3::new(node.x, node.z, -node.y))
+                        * Transform::from_translation(i as f32 * 0.0018 * Vec3::Y),
                     0.1,
                     0.0,
                 ));
@@ -64,24 +60,20 @@ pub fn public_troop_system(mut troops: Query<(&Troop, &mut Unique), Changed<Troo
 // }
 
 pub fn phase_text_system(
-    phase: Res<State<Phase>>,
+    phase: Res<CurrentState<Phase>>,
     data: Res<Data>,
-    info: Res<Info>,
+    active: Res<Active>,
     players: Query<&Faction, With<Player>>,
-    active_player: Query<Entity, (With<Player>, With<Active>)>,
     mut text: Query<&mut Text, With<PhaseText>>,
 ) {
     if phase.is_changed() {
-        let s = match phase.current() {
+        let s = match phase.0 {
             Phase::Setup(subphase) => match subphase {
                 SetupPhase::ChooseFactions => "Choosing Factions...".to_string(),
                 SetupPhase::Prediction => "Bene Gesserit are making a prediction...".to_string(),
                 SetupPhase::AtStart => format!(
                     "{:?} Initial Placement...",
-                    data.factions
-                        .get(players.get(active_player.single()).unwrap())
-                        .unwrap()
-                        .name
+                    data.factions.get(players.get(active.entity).unwrap()).unwrap().name
                 ),
                 SetupPhase::DealTraitors => "Dealing Traitor Cards...".to_string(),
                 SetupPhase::PickTraitors => "Picking Traitors...".to_string(),

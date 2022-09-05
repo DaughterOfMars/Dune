@@ -6,8 +6,10 @@ use bevy::{
 };
 use rand::{prelude::SliceRandom, Rng};
 
-pub fn screen_to_world(ss_pos: Vec3, transform: Transform, v: Mat4) -> Vec3 {
-    let p = transform.compute_matrix() * v.inverse() * ss_pos.extend(1.0);
+const UI_Z: f32 = 0.008;
+
+pub fn screen_to_world(ss_pos: Vec2, cam_transform: Transform, projection_matrix: Mat4) -> Vec3 {
+    let p = cam_transform.compute_matrix() * projection_matrix.inverse() * ss_pos.extend(UI_Z).extend(1.0);
     p.xyz() / p.w
 }
 

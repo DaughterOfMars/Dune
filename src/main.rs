@@ -11,22 +11,26 @@ use std::{collections::HashMap, f32::consts::PI};
 
 use bevy::{
     asset::LoadState,
-    core_pipeline::clear_color::ClearColorConfig,
-    math::{uvec2, vec3},
+    math::vec3,
     prelude::*,
     render::{
-        camera::{PerspectiveProjection, Projection, Viewport},
+        camera::{PerspectiveProjection, Projection},
         mesh::Indices,
         render_resource::PrimitiveTopology,
         view::RenderLayers,
     },
     utils::default,
-    window::{WindowId, WindowResized},
 };
 use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_mod_picking::{DefaultPickingPlugins, PickableBundle, PickingCameraBundle};
+use iyes_loopless::{
+    prelude::{AppLooplessStateExt, IntoConditionalSystem},
+    state::NextState,
+};
 
 use self::{components::*, game::*, input::GameInputPlugin, lerper::LerpPlugin, resources::*, util::card_jitter};
+
+pub const MAX_PLAYERS: u8 = 6;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Screen {
@@ -43,7 +47,14 @@ struct LoadingAssets {
     assets: Vec<HandleUntyped>,
 }
 
+pub struct Active {
+    pub entity: Entity,
+}
+
 fn main() {
+    if let Err(e) = dotenv::dotenv() {
+        error!("{}", e);
+    }
     let mut app = App::new();
     app.insert_resource(Msaa { samples: 4 })
         .insert_resource(ClearColor(Color::BLACK))
@@ -51,9 +62,9 @@ fn main() {
         .init_resource::<Info>()
         .init_resource::<LoadingAssets>();
 
-    app.add_state(Screen::Loading);
+    app.add_loopless_state(Screen::Loading);
 
-    app.add_startup_system(init_camera).add_system(set_camera_viewports);
+    app.add_startup_system(init_camera).add_system(active_cam_picker);
 
     app.add_plugins(DefaultPlugins)
         .add_plugin(WorldInspectorPlugin::new())
@@ -62,18 +73,12 @@ fn main() {
         .add_plugin(LerpPlugin)
         .add_plugins(DefaultPickingPlugins);
 
-    app.add_system_set(SystemSet::on_enter(Screen::Loading).with_system(init_loading_game))
-        .add_system_set(SystemSet::on_update(Screen::Loading).with_system(load_game))
-        .add_system_set(SystemSet::on_exit(Screen::Loading).with_system(tear_down))
-        .add_system_set(SystemSet::on_enter(Screen::Game).with_system(init_game))
-        .add_system_set(SystemSet::on_enter(Screen::Game).with_system(activate_all_cameras));
+    app.add_enter_system(Screen::Loading, init_loading_game);
+    app.add_system(load_game.run_in_state(Screen::Loading));
+    app.add_exit_system(Screen::Loading, tear_down);
+    app.add_enter_system(Screen::Game, init_game);
 
     app.run();
-}
-
-#[derive(Component)]
-struct CameraPosition {
-    index: u8,
 }
 
 fn init_camera(mut commands: Commands) {
@@ -85,7 +90,7 @@ fn init_camera(mut commands: Commands) {
     .into();
     let trans = Transform::from_translation(vec3(0.0, 2.5, 2.0)).looking_at(Vec3::ZERO, Vec3::Y)
         * Transform::from_translation(vec3(0.0, -0.4, 0.0));
-    commands
+    let primary_cam = commands
         .spawn_bundle(Camera3dBundle {
             projection: proj.clone(),
             transform: trans,
@@ -94,17 +99,13 @@ fn init_camera(mut commands: Commands) {
                 is_active: true,
                 ..default()
             },
-            camera_3d: Camera3d {
-                clear_color: ClearColorConfig::None,
-                ..default()
-            },
             ..default()
         })
         .insert(UiCameraConfig::default())
-        .insert(CameraPosition { index: 1 })
-        .insert_bundle(PickingCameraBundle::default())
-        .insert(RenderLayers::default().with(1));
-    for index in 2..7 {
+        .insert(RenderLayers::default().with(1))
+        .id();
+    commands.insert_resource(Active { entity: primary_cam });
+    for index in 2..MAX_PLAYERS + 1 {
         commands
             .spawn_bundle(Camera3dBundle {
                 projection: proj.clone(),
@@ -114,78 +115,22 @@ fn init_camera(mut commands: Commands) {
                     is_active: false,
                     ..default()
                 },
-                camera_3d: Camera3d {
-                    clear_color: ClearColorConfig::None,
-                    ..default()
-                },
                 ..default()
             })
             .insert(UiCameraConfig::default())
-            .insert(CameraPosition { index })
             .insert(RenderLayers::default().with(index));
     }
 }
 
-fn set_camera_viewports(
-    windows: Res<Windows>,
-    mut resize_events: EventReader<WindowResized>,
-    mut cams: Query<(&mut Camera, &CameraPosition)>,
-) {
-    let reorg = resize_events.iter().filter(|evt| evt.id == WindowId::primary()).count() > 0
-        || cams.iter_mut().any(|(cam, _)| cam.is_changed());
-    if reorg {
-        let window = windows.primary();
-        let mut active_cams = cams.iter_mut().filter(|(cam, _)| cam.is_active).collect::<Vec<_>>();
-        let total = active_cams.len();
-        active_cams.sort_unstable_by_key(|(_, pos)| pos.index);
-        for (index, (mut camera, _)) in active_cams.into_iter().enumerate() {
-            let (cols, rows) = match total {
-                1 => (1, 1),
-                2 => (2, 1),
-                3 => (2, 2),
-                4 => (2, 2),
-                5 => (3, 2),
-                6 => (3, 2),
-                _ => unreachable!(),
-            };
-            let (col, row) = match index {
-                0 => (0, 0),
-                1 => (1, 0),
-                2 => match cols {
-                    2 => (0, 1),
-                    3 => (2, 0),
-                    _ => unreachable!(),
-                },
-                3 => match cols {
-                    2 => (1, 1),
-                    3 => (0, 1),
-                    _ => unreachable!(),
-                },
-                4 => (1, 1),
-                5 => (2, 1),
-                _ => unreachable!(),
-            };
-            let center = match (index, total) {
-                (2, 3 | 5) | (5, 5) => true,
-                _ => false,
-            };
-            let physical_size = uvec2(window.physical_width() / cols, window.physical_height() / rows);
-            let physical_position = uvec2(
-                col * physical_size.x + center.then_some(physical_size.x / 2).unwrap_or_default(),
-                row * physical_size.y,
-            );
-            camera.viewport.replace(Viewport {
-                physical_position,
-                physical_size,
-                ..default()
-            });
+fn active_cam_picker(mut commands: Commands, active: Res<Active>, mut cams: Query<(Entity, &mut Camera)>) {
+    for (entity, mut camera) in cams.iter_mut() {
+        if active.entity == entity {
+            camera.is_active = true;
+            commands.entity(entity).insert_bundle(PickingCameraBundle::default());
+        } else {
+            camera.is_active = false;
+            commands.entity(entity).remove_bundle::<PickingCameraBundle>();
         }
-    }
-}
-
-fn activate_all_cameras(mut cams: Query<&mut Camera>) {
-    for mut cam in cams.iter_mut() {
-        cam.is_active = true;
     }
 }
 
@@ -239,7 +184,7 @@ fn init_loading_game(
 }
 
 fn load_game(
-    mut state: ResMut<State<Screen>>,
+    mut commands: Commands,
     asset_server: Res<AssetServer>,
     loading_assets: Res<LoadingAssets>,
     mut loading_bar: Query<&mut Style, With<LoadingBar>>,
@@ -259,7 +204,7 @@ fn load_game(
             Val::Percent(100.0 * (*counts.entry("loaded").or_insert(0) as f32 / loading_assets.assets.len() as f32));
     });
     if *counts.entry("loading").or_insert(0) == 0 {
-        state.set(Screen::Game).unwrap();
+        commands.insert_resource(NextState(Screen::Game));
     }
 }
 
@@ -311,7 +256,7 @@ fn init_game(
                 TextStyle {
                     font: asset_server.load("fonts/FiraSans-Bold.ttf"),
                     font_size: 40.0,
-                    color: Color::BLACK,
+                    color: Color::WHITE,
                     ..default()
                 },
             ),
@@ -551,8 +496,4 @@ fn tear_down(mut commands: Commands, screen_entities: Query<Entity, With<GameEnt
     for entity in screen_entities.iter() {
         commands.entity(entity).despawn_recursive();
     }
-}
-
-fn reset_game(mut info: ResMut<Info>) {
-    info.reset();
 }

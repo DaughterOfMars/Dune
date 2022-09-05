@@ -9,6 +9,7 @@ use bevy::{
     render::camera::{Camera, OrthographicProjection},
 };
 use bevy_mod_picking::PickableBundle;
+use iyes_loopless::prelude::{AppLooplessStateExt, IntoConditionalSystem};
 use rand::prelude::SliceRandom;
 
 use self::{
@@ -23,7 +24,7 @@ use crate::{
         Deck, Disorganized, Faction, FactionPredictionCard, LocationSector, Player, Spice, Troop, TurnPredictionCard,
         Unique,
     },
-    lerper::{Lerp, LerpType},
+    lerper::Lerp,
     resources::{Data, Info},
     util::{card_jitter, divide_spice},
     GameEntity, Screen,
@@ -33,22 +34,19 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.add_state(Phase::Setup(SetupPhase::ChooseFactions));
+        app.add_loopless_state(Phase::Setup(SetupPhase::ChooseFactions));
 
-        // app.add_plugin(SetupPlugin);
+        app.add_plugin(SetupPlugin);
 
-        app.add_system_set(SystemSet::on_enter(Screen::Game).with_system(init_factions));
+        app.add_enter_system(Screen::Game, init_factions);
 
-        app.add_system_set(
-            SystemSet::on_update(Screen::Game)
-                .with_system(phase_text_system)
-                .with_system(public_troop_system)
-                .with_system(trigger_stack_troops)
-                .with_system(shuffle_system)
-                .with_system(render_unique),
-        );
+        app.add_system(phase_text_system.run_in_state(Screen::Game));
+        app.add_system(public_troop_system.run_in_state(Screen::Game));
+        app.add_system(trigger_stack_troops.run_in_state(Screen::Game));
+        app.add_system(shuffle_system.run_in_state(Screen::Game));
+        app.add_system(render_unique.run_in_state(Screen::Game));
 
-        app.add_system_set(SystemSet::on_exit(Screen::Game).with_system(reset_system));
+        app.add_exit_system(Screen::Game, reset_system);
     }
 }
 
@@ -108,7 +106,6 @@ fn reset_system() {
 pub struct Shuffling(pub usize);
 
 pub fn init_shuffle_decks(mut commands: Commands, decks: Query<Entity, With<Deck>>) {
-    println!("Enter: shuffle_decks");
     for deck in decks.iter() {
         commands.entity(deck).insert(Shuffling(5));
     }
@@ -133,9 +130,7 @@ pub fn shuffle_system(
         deck.0 = cards.iter().map(|(_, e)| **e).collect();
         for (i, card) in cards {
             let transform = Transform::from_translation(Vec3::Y * 0.001 * (i as f32)) * card_jitter();
-            commands
-                .entity(*card)
-                .insert(Lerp::new(LerpType::world_to(transform), 0.2, 0.0));
+            commands.entity(*card).insert(Lerp::world_to(transform, 0.2, 0.0));
         }
     }
 }
@@ -145,8 +140,9 @@ pub fn init_factions(
     data: Res<Data>,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    free_cams: Query<Entity, (With<Camera>, Without<Player>)>,
 ) {
-    println!("Enter: init_factions");
+    info!("Enter: init_factions");
     let card_face = asset_server.get_handle("card.gltf#Mesh0/Primitive0");
     let card_back = asset_server.get_handle("card.gltf#Mesh0/Primitive1");
 
@@ -171,23 +167,17 @@ pub fn init_factions(
 
     for (i, &faction) in factions.iter().enumerate() {
         let faction_data = data.factions.get(&faction).unwrap();
-        commands.spawn_bundle((Player::new(faction_data.name.clone(), (i + 1) as _), faction));
-
-        let faction_code = match faction {
-            Faction::Atreides => "at",
-            Faction::Harkonnen => "hk",
-            Faction::Emperor => "em",
-            Faction::SpacingGuild => "sg",
-            Faction::Fremen => "fr",
-            Faction::BeneGesserit => "bg",
-        };
+        commands
+            .entity(free_cams.iter().next().unwrap())
+            .insert_bundle((Player::new(faction_data.name.clone(), (i + 1) as _), faction));
 
         // let logo_texture: Handle<Image> = asset_server.get_handle(format!("tokens/{}_logo.png",
         // faction_code).as_str());
 
         let shield_front_texture =
-            asset_server.get_handle(format!("shields/{}_shield_front.png", faction_code).as_str());
-        let shield_back_texture = asset_server.get_handle(format!("shields/{}_shield_back.png", faction_code).as_str());
+            asset_server.get_handle(format!("shields/{}_shield_front.png", faction.code()).as_str());
+        let shield_back_texture =
+            asset_server.get_handle(format!("shields/{}_shield_back.png", faction.code()).as_str());
         let shield_front_material = materials.add(StandardMaterial::from(shield_front_texture));
         let shield_back_material = materials.add(StandardMaterial::from(shield_back_texture));
 
@@ -213,7 +203,7 @@ pub fn init_factions(
             });
 
         let prediction_front_texture =
-            asset_server.get_handle(format!("predictions/prediction_{}.png", faction_code).as_str());
+            asset_server.get_handle(format!("predictions/prediction_{}.png", faction.code()).as_str());
         let prediction_front_material = materials.add(StandardMaterial::from(prediction_front_texture));
 
         commands
@@ -254,7 +244,7 @@ pub fn init_factions(
                 });
         }
 
-        let troop_texture = asset_server.get_handle(format!("tokens/{}_troop.png", faction_code).as_str());
+        let troop_texture = asset_server.get_handle(format!("tokens/{}_troop.png", faction.code()).as_str());
         let troop_material = materials.add(StandardMaterial::from(troop_texture));
 
         for i in 0..20 {

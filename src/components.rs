@@ -85,9 +85,6 @@ pub struct Deck(pub Vec<Entity>);
 pub struct Card;
 
 #[derive(Component)]
-pub struct Active;
-
-#[derive(Component)]
 pub struct CanRespond;
 
 #[derive(Clone, Component)]
@@ -108,6 +105,19 @@ pub enum Faction {
     SpacingGuild,
     Fremen,
     BeneGesserit,
+}
+
+impl Faction {
+    pub fn code(&self) -> &str {
+        match self {
+            Self::Atreides => "at",
+            Self::Harkonnen => "hk",
+            Self::Emperor => "em",
+            Self::SpacingGuild => "sg",
+            Self::Fremen => "fr",
+            Self::BeneGesserit => "bg",
+        }
+    }
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
