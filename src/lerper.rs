@@ -308,7 +308,7 @@ pub struct LerpWorld {
 fn init_lerp_system(
     mut commands: Commands,
     cameras: Query<(&GlobalTransform, &Camera)>,
-    mut lerps: Query<(Entity, &Lerp, &Transform), (Without<LerpUI>, Without<LerpWorld>)>,
+    mut lerps: Query<(Entity, &Lerp, &Transform), Added<Lerp>>,
 ) {
     for (entity, lerp, transform) in lerps.iter_mut() {
         match lerp.lerp_type {
