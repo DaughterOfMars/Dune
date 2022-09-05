@@ -11,12 +11,14 @@ use std::{collections::HashMap, f32::consts::PI};
 
 use bevy::{
     asset::LoadState,
+    core_pipeline::clear_color::ClearColorConfig,
     math::{uvec2, vec3},
     prelude::*,
     render::{
         camera::{PerspectiveProjection, Projection, Viewport},
         mesh::Indices,
         render_resource::PrimitiveTopology,
+        view::RenderLayers,
     },
     utils::default,
     window::{WindowId, WindowResized},
@@ -51,21 +53,20 @@ fn main() {
 
     app.add_state(Screen::Loading);
 
-    app.add_startup_system(init_camera)
-        .add_system(set_camera_viewports)
-        .add_system(set_camera_active);
+    app.add_startup_system(init_camera).add_system(set_camera_viewports);
 
     app.add_plugins(DefaultPlugins)
         .add_plugin(WorldInspectorPlugin::new())
-        //.add_plugin(GameInputPlugin)
-        //.add_plugin(GamePlugin)
-        //.add_plugin(LerpPlugin)
+        .add_plugin(GameInputPlugin)
+        .add_plugin(GamePlugin)
+        .add_plugin(LerpPlugin)
         .add_plugins(DefaultPickingPlugins);
 
     app.add_system_set(SystemSet::on_enter(Screen::Loading).with_system(init_loading_game))
         .add_system_set(SystemSet::on_update(Screen::Loading).with_system(load_game))
         .add_system_set(SystemSet::on_exit(Screen::Loading).with_system(tear_down))
-        .add_system_set(SystemSet::on_enter(Screen::Game).with_system(init_game));
+        .add_system_set(SystemSet::on_enter(Screen::Game).with_system(init_game))
+        .add_system_set(SystemSet::on_enter(Screen::Game).with_system(activate_all_cameras));
 
     app.run();
 }
@@ -88,83 +89,103 @@ fn init_camera(mut commands: Commands) {
         .spawn_bundle(Camera3dBundle {
             projection: proj.clone(),
             transform: trans,
+            camera: Camera {
+                priority: 1,
+                is_active: true,
+                ..default()
+            },
+            camera_3d: Camera3d {
+                clear_color: ClearColorConfig::None,
+                ..default()
+            },
             ..default()
         })
         .insert(UiCameraConfig::default())
-        .insert(CameraPosition { index: 0 })
+        .insert(CameraPosition { index: 1 })
         .insert_bundle(PickingCameraBundle::default())
-        .insert(Active);
-    for index in 1..6 {
+        .insert(RenderLayers::default().with(1));
+    for index in 2..7 {
         commands
             .spawn_bundle(Camera3dBundle {
                 projection: proj.clone(),
                 transform: trans,
                 camera: Camera {
                     priority: index as _,
+                    is_active: false,
+                    ..default()
+                },
+                camera_3d: Camera3d {
+                    clear_color: ClearColorConfig::None,
                     ..default()
                 },
                 ..default()
             })
             .insert(UiCameraConfig::default())
             .insert(CameraPosition { index })
-            .insert_bundle(PickingCameraBundle::default());
+            .insert(RenderLayers::default().with(index));
     }
 }
 
 fn set_camera_viewports(
     windows: Res<Windows>,
     mut resize_events: EventReader<WindowResized>,
-    mut cams: Query<(&mut Camera, &CameraPosition), With<Active>>,
+    mut cams: Query<(&mut Camera, &CameraPosition)>,
 ) {
-    for resize_event in resize_events.iter() {
-        if resize_event.id == WindowId::primary() {
-            let window = windows.primary();
-            let total = cams.iter().count();
-            for (mut camera, CameraPosition { index }) in cams.iter_mut() {
-                let (cols, rows) = match total {
-                    1 => (1, 1),
-                    2 => (2, 1),
-                    3 => (2, 2),
-                    4 => (2, 2),
-                    5 => (3, 2),
-                    6 => (3, 2),
+    let reorg = resize_events.iter().filter(|evt| evt.id == WindowId::primary()).count() > 0
+        || cams.iter_mut().any(|(cam, _)| cam.is_changed());
+    if reorg {
+        let window = windows.primary();
+        let mut active_cams = cams.iter_mut().filter(|(cam, _)| cam.is_active).collect::<Vec<_>>();
+        let total = active_cams.len();
+        active_cams.sort_unstable_by_key(|(_, pos)| pos.index);
+        for (index, (mut camera, _)) in active_cams.into_iter().enumerate() {
+            let (cols, rows) = match total {
+                1 => (1, 1),
+                2 => (2, 1),
+                3 => (2, 2),
+                4 => (2, 2),
+                5 => (3, 2),
+                6 => (3, 2),
+                _ => unreachable!(),
+            };
+            let (col, row) = match index {
+                0 => (0, 0),
+                1 => (1, 0),
+                2 => match cols {
+                    2 => (0, 1),
+                    3 => (2, 0),
                     _ => unreachable!(),
-                };
-                let (col, row, center) = match index {
-                    0 => (0, 0, false),
-                    1 => (1, 0, false),
-                    2 => match cols {
-                        2 => (0, 1, true),
-                        3 => (2, 0, false),
-                        _ => unreachable!(),
-                    },
-                    3 => match cols {
-                        2 => (1, 1, false),
-                        3 => (0, 1, true),
-                        _ => unreachable!(),
-                    },
-                    4 => (1, 1, true),
-                    5 => (2, 1, false),
+                },
+                3 => match cols {
+                    2 => (1, 1),
+                    3 => (0, 1),
                     _ => unreachable!(),
-                };
-                let physical_size = uvec2(window.physical_width() / cols, window.physical_height() / rows);
-                let physical_position = uvec2(
-                    col * physical_size.x + center.then_some(physical_size.x / 2).unwrap_or_default(),
-                    row * physical_size.y,
-                );
-                camera.viewport.replace(Viewport {
-                    physical_position,
-                    physical_size,
-                    ..default()
-                });
-            }
+                },
+                4 => (1, 1),
+                5 => (2, 1),
+                _ => unreachable!(),
+            };
+            let center = match (index, total) {
+                (2, 3 | 5) | (5, 5) => true,
+                _ => false,
+            };
+            let physical_size = uvec2(window.physical_width() / cols, window.physical_height() / rows);
+            let physical_position = uvec2(
+                col * physical_size.x + center.then_some(physical_size.x / 2).unwrap_or_default(),
+                row * physical_size.y,
+            );
+            camera.viewport.replace(Viewport {
+                physical_position,
+                physical_size,
+                ..default()
+            });
         }
     }
 }
 
-fn set_camera_active(mut cams: Query<(&mut Camera, Option<&Active>)>) {
-    for (mut cam, active) in cams.iter_mut() {
-        cam.is_active = active.is_some();
+fn activate_all_cameras(mut cams: Query<&mut Camera>) {
+    for mut cam in cams.iter_mut() {
+        cam.is_active = true;
     }
 }
 
@@ -484,8 +505,8 @@ fn init_game(
     commands
         .spawn_bundle(PbrBundle {
             mesh: deck_mesh.clone(),
-            visibility: Visibility { is_visible: false },
             transform: Transform::from_translation(data.camera_nodes.treachery.at),
+            material: materials.add(StandardMaterial::from(Color::rgba(1.0, 1.0, 1.0, 0.0))),
             ..default()
         })
         .insert_bundle(PickableBundle::default())
@@ -495,8 +516,8 @@ fn init_game(
     commands
         .spawn_bundle(PbrBundle {
             mesh: deck_mesh.clone(),
-            visibility: Visibility { is_visible: false },
             transform: Transform::from_translation(data.camera_nodes.traitor.at),
+            material: materials.add(StandardMaterial::from(Color::rgba(1.0, 1.0, 1.0, 0.0))),
             ..default()
         })
         .insert_bundle(PickableBundle::default())
@@ -506,8 +527,8 @@ fn init_game(
     commands
         .spawn_bundle(PbrBundle {
             mesh: deck_mesh.clone(),
-            visibility: Visibility { is_visible: false },
             transform: Transform::from_translation(data.camera_nodes.spice.at),
+            material: materials.add(StandardMaterial::from(Color::rgba(1.0, 1.0, 1.0, 0.0))),
             ..default()
         })
         .insert_bundle(PickableBundle::default())
@@ -517,8 +538,8 @@ fn init_game(
     commands
         .spawn_bundle(PbrBundle {
             mesh: deck_mesh,
-            visibility: Visibility { is_visible: false },
             transform: Transform::from_translation(data.camera_nodes.storm.at),
+            material: materials.add(StandardMaterial::from(Color::rgba(1.0, 1.0, 1.0, 0.0))),
             ..default()
         })
         .insert_bundle(PickableBundle::default())

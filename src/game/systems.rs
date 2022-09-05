@@ -1,3 +1,5 @@
+use bevy::render::view::RenderLayers;
+
 use super::*;
 use crate::{
     components::{Active, Faction},
@@ -156,4 +158,20 @@ pub fn place_troops(
 
     // Move the camera so we can see the board good
     // enable clickables
+}
+
+pub fn render_unique(
+    mut commands: Commands,
+    mut uniques: Query<(Entity, &Unique), Changed<Unique>>,
+    players: Query<(&Player, &Faction)>,
+) {
+    for (entity, unique) in uniques.iter_mut() {
+        if unique.public {
+            commands.entity(entity).insert(RenderLayers::default());
+        } else {
+            if let Some((player, _)) = players.iter().find(|(_, faction)| *faction == &unique.faction) {
+                commands.entity(entity).insert(RenderLayers::layer(player.turn_order));
+            }
+        }
+    }
 }

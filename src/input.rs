@@ -13,8 +13,7 @@ pub struct GameInputPlugin;
 
 impl Plugin for GameInputPlugin {
     fn build(&self, app: &mut App) {
-        app.add_system_set_to_stage(
-            CoreStage::PreUpdate,
+        app.add_system_set(
             SystemSet::on_update(Screen::Game)
                 .with_system(picker_system)
                 .with_system(camera_reset_system),
@@ -33,7 +32,7 @@ fn debug_restart_system(mut state: ResMut<State<Screen>>, keyboard_input: Res<In
 
 fn picker_system(
     mut commands: Commands,
-    camera: Query<Entity, (With<Camera>, Without<Lerp>, With<Active>)>,
+    camera: Query<Entity, (With<Camera>, Without<Lerp>)>,
     nodes: Query<&CameraNode>,
     mut events: EventReader<PickingEvent>,
 ) {
@@ -58,7 +57,7 @@ fn camera_reset_system(
     mut commands: Commands,
     data: Res<Data>,
     keyboard_input: Res<Input<KeyCode>>,
-    camera: Query<Entity, (With<Camera>, Without<Lerp>, With<Active>)>,
+    camera: Query<Entity, (With<Camera>, Without<Lerp>)>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Escape) {
         if let Some(camera) = camera.iter().next() {

@@ -62,14 +62,16 @@ pub struct Prediction {
 #[derive(Component)]
 pub struct Player {
     pub name: String,
+    pub turn_order: u8,
     pub traitor_cards: Vec<Entity>,
     pub treachery_cards: Vec<Entity>,
 }
 
 impl Player {
-    pub fn new(name: String) -> Self {
+    pub fn new(name: String, turn_order: u8) -> Self {
         Player {
             name,
+            turn_order,
             traitor_cards: Vec::new(),
             treachery_cards: Vec::new(),
         }
