@@ -26,6 +26,7 @@ fn picker_system(
     mut commands: Commands,
     camera: Query<Entity, (With<Camera>, Without<Lerp>)>,
     nodes: Query<&CameraNode>,
+    parents: Query<&Parent>,
     mut events: EventReader<PickingEvent>,
 ) {
     for event in events.iter() {
@@ -34,10 +35,20 @@ fn picker_system(
             PickingEvent::Hover(_) => (),
             PickingEvent::Clicked(clicked) => {
                 if let Some(camera) = camera.iter().next() {
-                    if let Ok(camera_node) = nodes.get(*clicked) {
-                        commands
-                            .entity(camera)
-                            .insert(Lerp::move_camera(camera_node.clone(), 1.0));
+                    let mut clicked = *clicked;
+                    loop {
+                        if let Ok(camera_node) = nodes.get(clicked) {
+                            commands
+                                .entity(camera)
+                                .insert(Lerp::move_camera(camera_node.clone(), 1.0));
+                            return;
+                        } else {
+                            if let Ok(parent) = parents.get(clicked).map(|p| p.get()) {
+                                clicked = parent;
+                            } else {
+                                break;
+                            }
+                        }
                     }
                 }
             }

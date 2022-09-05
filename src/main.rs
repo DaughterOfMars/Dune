@@ -27,6 +27,7 @@ use iyes_loopless::{
     prelude::{AppLooplessStateExt, IntoConditionalSystem},
     state::NextState,
 };
+use rand::seq::SliceRandom;
 
 use self::{components::*, game::*, input::GameInputPlugin, lerper::LerpPlugin, resources::*, util::card_jitter};
 
@@ -64,7 +65,7 @@ fn main() {
 
     app.add_loopless_state(Screen::Loading);
 
-    app.add_startup_system(init_camera).add_system(active_cam_picker);
+    app.add_startup_system(init_cameras).add_system(active_cam_picker);
 
     app.add_plugins(DefaultPlugins)
         .add_plugin(WorldInspectorPlugin::new())
@@ -81,7 +82,7 @@ fn main() {
     app.run();
 }
 
-fn init_camera(mut commands: Commands) {
+fn init_cameras(mut commands: Commands, mut info: ResMut<Info>) {
     let proj: Projection = PerspectiveProjection {
         near: 0.01,
         far: 100.0,
@@ -103,33 +104,41 @@ fn init_camera(mut commands: Commands) {
         })
         .insert(UiCameraConfig::default())
         .insert(RenderLayers::default().with(1))
+        .insert(Player::new())
         .id();
     commands.insert_resource(Active { entity: primary_cam });
+    info.turn_order.push(primary_cam);
     for index in 2..MAX_PLAYERS + 1 {
-        commands
-            .spawn_bundle(Camera3dBundle {
-                projection: proj.clone(),
-                transform: trans,
-                camera: Camera {
-                    priority: index as _,
-                    is_active: false,
+        info.turn_order.push(
+            commands
+                .spawn_bundle(Camera3dBundle {
+                    projection: proj.clone(),
+                    transform: trans,
+                    camera: Camera {
+                        priority: index as _,
+                        is_active: false,
+                        ..default()
+                    },
                     ..default()
-                },
-                ..default()
-            })
-            .insert(UiCameraConfig::default())
-            .insert(RenderLayers::default().with(index));
+                })
+                .insert(UiCameraConfig::default())
+                .insert(RenderLayers::default().with(index))
+                .insert(Player::new())
+                .id(),
+        );
     }
 }
 
 fn active_cam_picker(mut commands: Commands, active: Res<Active>, mut cams: Query<(Entity, &mut Camera)>) {
-    for (entity, mut camera) in cams.iter_mut() {
-        if active.entity == entity {
-            camera.is_active = true;
-            commands.entity(entity).insert_bundle(PickingCameraBundle::default());
-        } else {
-            camera.is_active = false;
-            commands.entity(entity).remove_bundle::<PickingCameraBundle>();
+    if active.is_changed() {
+        for (entity, mut camera) in cams.iter_mut() {
+            if active.entity == entity {
+                camera.is_active = true;
+                commands.entity(entity).insert_bundle(PickingCameraBundle::default());
+            } else {
+                camera.is_active = false;
+                commands.entity(entity).remove_bundle::<PickingCameraBundle>();
+            }
         }
     }
 }
@@ -210,11 +219,14 @@ fn load_game(
 
 fn init_game(
     mut commands: Commands,
+    mut info: ResMut<Info>,
     data: Res<Data>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    let mut rng = rand::thread_rng();
+    info.turn_order.shuffle(&mut rng);
     // Light
     commands
         .spawn_bundle(PointLightBundle {

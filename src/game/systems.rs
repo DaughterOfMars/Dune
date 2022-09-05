@@ -155,14 +155,14 @@ pub fn place_troops(
 pub fn render_unique(
     mut commands: Commands,
     mut uniques: Query<(Entity, &Unique), Changed<Unique>>,
-    players: Query<(&Player, &Faction)>,
+    players: Query<(&RenderLayers, &Faction), With<Camera>>,
 ) {
     for (entity, unique) in uniques.iter_mut() {
         if unique.public {
             commands.entity(entity).insert(RenderLayers::default());
         } else {
-            if let Some((player, _)) = players.iter().find(|(_, faction)| *faction == &unique.faction) {
-                commands.entity(entity).insert(RenderLayers::layer(player.turn_order));
+            if let Some((layer, _)) = players.iter().find(|(_, faction)| *faction == &unique.faction) {
+                commands.entity(entity).insert(layer.without(0));
             }
         }
     }

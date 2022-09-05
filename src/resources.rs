@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs::File};
 
-use bevy::math::Vec2;
+use bevy::{math::Vec2, prelude::Entity};
 
 use crate::{
     components::{Faction, Leader, Location, SpiceCard, TreacheryCard},
@@ -43,11 +43,15 @@ impl Default for Data {
 
 pub struct Info {
     pub current_turn: usize,
+    pub turn_order: Vec<Entity>,
 }
 
 impl Default for Info {
     fn default() -> Self {
-        Info { current_turn: 0 }
+        Info {
+            current_turn: 0,
+            turn_order: Vec::new(),
+        }
     }
 }
 
