@@ -14,7 +14,7 @@ use maplit::hashset;
 use crate::{
     components::{Card, Faction, FactionPredictionCard, Player, Spice, Troop, TurnPredictionCard, Unique},
     game::Phase,
-    lerper::{Lerp, UITransform},
+    lerper::{InterpolationFunction, Lerp, UITransform},
     resources::{Data, Info},
     util::divide_spice,
     Active, GameEntity, Screen,
@@ -249,13 +249,16 @@ fn pick_factions_step(
                 state.faction_cards.push(
                     commands
                         .spawn_bundle((Card, FactionPredictionCard { faction }))
-                        .insert(Lerp::ui_from_to(
-                            UITransform::default().with_rotation(Quat::from_rotation_x(PI / 2.0)),
-                            UITransform::from(node).with_rotation(Quat::from_rotation_x(PI / 2.0)),
-                            player_entity,
-                            1.0,
-                            0.05 * i as f32,
-                        ))
+                        .insert(
+                            Lerp::ui_from_to(
+                                UITransform::default().with_rotation(Quat::from_rotation_x(PI / 2.0)),
+                                UITransform::from(node).with_rotation(Quat::from_rotation_x(PI / 2.0)),
+                                player_entity,
+                                0.5,
+                                0.03 * i as f32,
+                            )
+                            .with_interpolation(InterpolationFunction::Easing),
+                        )
                         .insert(Unique::new(faction))
                         .insert_bundle(SpatialBundle::default())
                         .with_children(|parent| {

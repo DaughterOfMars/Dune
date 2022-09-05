@@ -1,10 +1,6 @@
 use std::f32::consts::PI;
 
-use bevy::{
-    math::vec2,
-    prelude::*,
-    render::camera::{Camera, OrthographicProjection},
-};
+use bevy::{math::vec2, prelude::*, render::camera::Camera};
 use bevy_inspector_egui::{Inspectable, RegisterInspectable};
 
 use crate::{data::CameraNode, util::screen_to_world};
@@ -26,6 +22,7 @@ enum LerpType {
     UIToWorld {
         src: Option<UITransform>,
         dest: Transform,
+        cam: Entity,
     },
     WorldToUI {
         src: Option<Transform>,
@@ -84,8 +81,8 @@ impl LerpType {
         }
     }
 
-    pub fn ui_to_world(dest: Transform) -> Self {
-        LerpType::UIToWorld { src: None, dest }
+    pub fn ui_to_world(dest: Transform, cam: Entity) -> Self {
+        LerpType::UIToWorld { src: None, dest, cam }
     }
 }
 
@@ -102,7 +99,7 @@ pub enum InterpolationFunction {
 
 impl Default for InterpolationFunction {
     fn default() -> Self {
-        Self::Linear
+        Self::Easing
     }
 }
 
@@ -183,8 +180,8 @@ impl Lerp {
         Lerp::new(LerpType::card_to_ui(dest, cam), time, delay)
     }
 
-    pub fn ui_to_world(dest: Transform, time: f32, delay: f32) -> Self {
-        Lerp::new(LerpType::ui_to_world(dest), time, delay)
+    pub fn ui_to_world(dest: Transform, cam: Entity, time: f32, delay: f32) -> Self {
+        Lerp::new(LerpType::ui_to_world(dest, cam), time, delay)
     }
 
     pub fn with_interpolation(mut self, interp_fn: impl InterpolationFn + Send + Sync + 'static) -> Self {
@@ -193,7 +190,7 @@ impl Lerp {
     }
 }
 
-#[derive(Copy, Clone, Inspectable)]
+#[derive(Copy, Clone, Component, Inspectable)]
 pub struct UITransform {
     translation: Vec2,
     rotation: Quat,
@@ -274,11 +271,9 @@ impl From<(Vec2, Quat, f32)> for UITransform {
     }
 }
 
-#[derive(Component, Inspectable)]
+#[derive(Component)]
 pub struct UIElement {
-    #[inspectable(ignore)]
     pub cam: Entity,
-    pub ui_transform: UITransform,
 }
 
 pub struct LerpCompleted {
@@ -290,163 +285,187 @@ pub struct LerpPlugin;
 impl Plugin for LerpPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<LerpCompleted>()
-            .add_system(camera_system)
-            .add_system(lerp_system)
+            .add_system(init_lerp_system)
+            .add_system(lerp_ui_system)
+            .add_system(lerp_world_system)
             .add_system(ui_element_system)
-            .register_inspectable::<UIElement>();
+            .register_inspectable::<UITransform>();
     }
 }
 
-fn lerp_system(
+#[derive(Component)]
+pub struct LerpUI {
+    src: UITransform,
+    dest: UITransform,
+}
+
+#[derive(Component)]
+pub struct LerpWorld {
+    src: Transform,
+    dest: Transform,
+}
+
+fn init_lerp_system(
+    mut commands: Commands,
+    cameras: Query<(&GlobalTransform, &Camera)>,
+    mut lerps: Query<(Entity, &Lerp, &Transform), (Without<LerpUI>, Without<LerpWorld>)>,
+) {
+    for (entity, lerp, transform) in lerps.iter_mut() {
+        match lerp.lerp_type {
+            LerpType::UI { src, dest, cam } => {
+                let src = src.unwrap_or_else(|| {
+                    if let Ok((cam_transform, camera)) = cameras.get(cam) {
+                        camera
+                            .world_to_viewport(cam_transform, transform.translation)
+                            .map(Into::into)
+                            .unwrap_or_default()
+                    } else {
+                        Default::default()
+                    }
+                });
+                commands
+                    .entity(entity)
+                    .insert(LerpUI { src, dest })
+                    .insert(src)
+                    .insert(UIElement { cam });
+            }
+            LerpType::World { src, dest } => {
+                commands
+                    .entity(entity)
+                    .insert(LerpWorld {
+                        src: src.unwrap_or(*transform),
+                        dest,
+                    })
+                    .remove::<UITransform>()
+                    .remove::<UIElement>();
+            }
+            LerpType::UIToWorld { src, dest, cam } => {
+                commands
+                    .entity(entity)
+                    .insert(LerpWorld {
+                        src: src
+                            .and_then(|src| {
+                                if let Ok((cam_transform, camera)) = cameras.get(cam) {
+                                    let cam_transform = cam_transform.compute_transform();
+                                    Some(
+                                        Transform::from_translation(screen_to_world(
+                                            src.translation,
+                                            cam_transform,
+                                            camera.projection_matrix(),
+                                        )) * Transform::from_rotation(cam_transform.rotation * src.rotation)
+                                            * Transform::from_scale(Vec3::splat(UI_SCALE * src.scale)),
+                                    )
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or(*transform),
+                        dest,
+                    })
+                    .remove::<UITransform>()
+                    .remove::<UIElement>();
+            }
+            LerpType::WorldToUI { src, dest, cam } => {
+                let src = src
+                    .and_then(|src| {
+                        if let Ok((cam_transform, camera)) = cameras.get(cam) {
+                            camera.world_to_viewport(cam_transform, src.translation).map(Into::into)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_default();
+                commands
+                    .entity(entity)
+                    .insert(LerpUI { src, dest })
+                    .insert(src)
+                    .insert(UIElement { cam });
+            }
+            LerpType::Camera { dest } => {
+                commands
+                    .entity(entity)
+                    .insert(LerpWorld {
+                        src: *transform,
+                        dest: Transform::from_translation(dest.pos).looking_at(dest.at, dest.up),
+                    })
+                    .remove::<UITransform>()
+                    .remove::<UIElement>();
+            }
+        }
+    }
+}
+
+fn lerp_ui_system(
     mut commands: Commands,
     mut event_writer: EventWriter<LerpCompleted>,
     time: Res<Time>,
-    cameras: Query<(&GlobalTransform, &Camera), Without<OrthographicProjection>>,
-    mut lerps: Query<(Entity, &mut Lerp, &mut Transform, Option<&mut UIElement>), Without<Camera>>,
+    mut lerps: Query<(Entity, &mut Lerp, &LerpUI, &mut UITransform), Without<Camera>>,
 ) {
-    for (entity, mut lerp, mut transform, opt_ui_element) in lerps.iter_mut() {
-        let (mut dest_ui, mut dest_3d, mut ui_element) = (None, None, None);
-        match lerp.lerp_type {
-            LerpType::UI { src, dest, cam } => {
-                if let Some(src) = src {
-                    ui_element = Some(UIElement { cam, ui_transform: src });
-                } else {
-                    ui_element = Some(UIElement {
-                        cam,
-                        ui_transform: opt_ui_element.map(|e| e.ui_transform).unwrap_or_default(),
-                    });
-                }
-                dest_ui = Some(dest);
-            }
-            LerpType::World { src, dest } => {
-                if let Some(src) = src {
-                    *transform = src;
-                }
-                dest_3d = Some(dest);
-            }
-            LerpType::UIToWorld { src, dest } => {
-                if let Some(src) = src {
-                    if let Some(ui_element) = opt_ui_element {
-                        if let Ok((cam_transform, camera)) = cameras.get(ui_element.cam) {
-                            let cam_transform = cam_transform.compute_transform();
-                            *transform = Transform::from_translation(screen_to_world(
-                                src.translation,
-                                cam_transform,
-                                camera.projection_matrix(),
-                            )) * Transform::from_rotation(cam_transform.rotation * src.rotation)
-                                * Transform::from_scale(Vec3::splat(UI_SCALE * src.scale));
-                        }
-                        commands.entity(entity).remove::<UIElement>();
-                    }
-                }
-                dest_3d = Some(dest);
-            }
-            LerpType::WorldToUI { src, dest, cam } => {
-                if let Some(src) = src {
-                    if let Ok((cam_transform, camera)) = cameras.get(cam) {
-                        ui_element = Some(UIElement {
-                            cam,
-                            ui_transform: camera
-                                .world_to_viewport(cam_transform, src.translation)
-                                .map(Into::into)
-                                .unwrap_or_default(),
-                        });
-                    }
-                } else {
-                    ui_element = Some(UIElement {
-                        cam,
-                        ui_transform: opt_ui_element.map(|e| e.ui_transform).unwrap_or_default(),
-                    });
-                }
-                dest_ui = Some(dest);
-            }
-            _ => (),
-        }
-
-        if let Some(dest) = dest_3d {
-            if lerp.delay > 0.0 {
-                lerp.delay -= time.delta_seconds() * SPEED_MOD;
+    for (entity, mut lerp, lerp_ui, mut transform) in lerps.iter_mut() {
+        if lerp.delay > 0.0 {
+            lerp.delay -= time.delta_seconds() * SPEED_MOD;
+        } else {
+            if lerp.remaining_time <= 0.0 {
+                commands.entity(entity).remove::<Lerp>().remove::<LerpUI>();
+                event_writer.send(LerpCompleted { entity });
             } else {
-                if lerp.remaining_time <= 0.05 {
-                    *transform = dest;
-                    commands.entity(entity).remove::<Lerp>();
-                    event_writer.send(LerpCompleted { entity });
-                } else {
-                    let prev_lerp_amount = (lerp.animation_time - lerp.remaining_time) / lerp.animation_time;
-                    lerp.remaining_time -= time.delta_seconds() * SPEED_MOD;
-                    let new_lerp_amount = (lerp.animation_time - lerp.remaining_time) / lerp.animation_time;
-                    let lerp_amount = lerp.interp_fn.interpolate(new_lerp_amount - prev_lerp_amount);
+                lerp.remaining_time -= time.delta_seconds() * SPEED_MOD;
+                let lerp_amount = lerp
+                    .interp_fn
+                    .interpolate((lerp.animation_time - lerp.remaining_time) / lerp.animation_time);
 
-                    transform.translation = transform.translation.lerp(dest.translation, lerp_amount);
-                    transform.rotation = transform.rotation.lerp(dest.rotation, lerp_amount);
-                    transform.scale = transform.scale.lerp(dest.scale, lerp_amount);
-                }
-            }
-        } else if let (Some(dest), Some(mut ui_element)) = (dest_ui, ui_element) {
-            if lerp.delay > 0.0 {
-                lerp.delay -= time.delta_seconds() * SPEED_MOD;
-            } else {
-                let ui_transform = &mut ui_element.ui_transform;
-                if lerp.remaining_time <= 0.05 {
-                    *ui_transform = dest;
-                    commands.entity(entity).remove::<Lerp>();
-                    event_writer.send(LerpCompleted { entity });
-                } else {
-                    let prev_lerp_amount = (lerp.animation_time - lerp.remaining_time) / lerp.animation_time;
-                    lerp.remaining_time -= time.delta_seconds() * SPEED_MOD;
-                    let new_lerp_amount = (lerp.animation_time - lerp.remaining_time) / lerp.animation_time;
-                    let lerp_amount = lerp.interp_fn.interpolate(new_lerp_amount - prev_lerp_amount);
-
-                    ui_transform.translation = ui_transform.translation.lerp(dest.translation, lerp_amount);
-                    ui_transform.rotation = ui_transform.rotation.lerp(dest.rotation, lerp_amount);
-                    ui_transform.scale = ui_transform.scale + (dest.scale - ui_transform.scale) * lerp_amount;
-                }
-                commands.entity(entity).insert(ui_element);
+                transform.translation = lerp_ui.src.translation.lerp(lerp_ui.dest.translation, lerp_amount);
+                transform.rotation = lerp_ui.src.rotation.lerp(lerp_ui.dest.rotation, lerp_amount);
+                transform.scale = lerp_ui.src.scale + (lerp_ui.dest.scale - lerp_ui.src.scale) * lerp_amount;
             }
         }
     }
 }
 
-fn camera_system(
+fn lerp_world_system(
     mut commands: Commands,
+    mut event_writer: EventWriter<LerpCompleted>,
     time: Res<Time>,
-    mut cameras: Query<(Entity, &mut Lerp, &mut Transform), With<Camera>>,
+    mut lerps: Query<(Entity, &mut Lerp, &LerpWorld, &mut Transform)>,
 ) {
-    for (entity, mut lerp, mut transform) in cameras.iter_mut() {
-        if let LerpType::Camera { dest } = lerp.lerp_type {
-            if lerp.remaining_time <= 0.0 {
-                *transform = Transform::from_translation(dest.pos).looking_at(dest.at, dest.up);
-
-                commands.entity(entity).remove::<Lerp>();
-            } else {
-                let prev_lerp_amount = (lerp.animation_time - lerp.remaining_time) / lerp.animation_time;
-                lerp.remaining_time -= time.delta_seconds() * SPEED_MOD;
-                let new_lerp_amount = (lerp.animation_time - lerp.remaining_time) / lerp.animation_time;
-                let lerp_amount = lerp.interp_fn.interpolate(new_lerp_amount - prev_lerp_amount);
-
-                let dest_transform = Transform::from_translation(dest.pos).looking_at(dest.at, dest.up);
-                transform.translation = transform.translation.lerp(dest_transform.translation, lerp_amount);
-                transform.rotation = transform.rotation.lerp(dest_transform.rotation, lerp_amount);
-            }
+    for (entity, mut lerp, lerp_world, mut transform) in lerps.iter_mut() {
+        if lerp.delay > 0.0 {
+            lerp.delay -= time.delta_seconds() * SPEED_MOD;
         } else {
-            commands.entity(entity).remove::<Lerp>();
+            if lerp.remaining_time <= 0.0 {
+                *transform = lerp_world.dest;
+                commands.entity(entity).remove::<Lerp>().remove::<LerpWorld>();
+                event_writer.send(LerpCompleted { entity });
+            } else {
+                lerp.remaining_time -= time.delta_seconds() * SPEED_MOD;
+                let lerp_amount = lerp
+                    .interp_fn
+                    .interpolate((lerp.animation_time - lerp.remaining_time) / lerp.animation_time);
+
+                transform.translation = lerp_world
+                    .src
+                    .translation
+                    .lerp(lerp_world.dest.translation, lerp_amount);
+                transform.rotation = lerp_world.src.rotation.lerp(lerp_world.dest.rotation, lerp_amount);
+                transform.scale = lerp_world.src.scale.lerp(lerp_world.dest.scale, lerp_amount);
+            }
         }
     }
 }
 
 fn ui_element_system(
-    mut ui_elements: Query<(&mut Transform, &UIElement), Without<Camera>>,
+    mut ui_elements: Query<(&mut Transform, &UITransform, &UIElement), Without<Camera>>,
     cameras: Query<(&GlobalTransform, &Camera)>,
 ) {
-    for (mut transform, ui_element) in ui_elements.iter_mut() {
+    for (mut transform, ui_transform, ui_element) in ui_elements.iter_mut() {
         if let Ok((cam_transform, camera)) = cameras.get(ui_element.cam) {
             let cam_transform = cam_transform.compute_transform();
             *transform = Transform::from_translation(screen_to_world(
-                ui_element.ui_transform.translation,
+                ui_transform.translation,
                 cam_transform,
                 camera.projection_matrix(),
-            )) * Transform::from_rotation(cam_transform.rotation * ui_element.ui_transform.rotation)
-                * Transform::from_scale(Vec3::splat(UI_SCALE * ui_element.ui_transform.scale))
+            )) * Transform::from_rotation(cam_transform.rotation * ui_transform.rotation)
+                * Transform::from_scale(Vec3::splat(UI_SCALE * ui_transform.scale))
         }
     }
 }
