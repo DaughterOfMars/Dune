@@ -1,5 +1,11 @@
-use bevy::{ecs::entity::Entity, math::Vec3, prelude::Component};
+use bevy::{
+    ecs::entity::Entity,
+    math::Vec3,
+    prelude::{Bundle, Component},
+};
 use serde::{Deserialize, Serialize};
+
+use crate::GameEntity;
 
 #[derive(Copy, Clone, Component)]
 pub struct Spice {
@@ -85,12 +91,12 @@ pub struct CanRespond;
 
 #[derive(Clone, Component)]
 pub struct StormCardValue {
-    pub val: i32,
+    pub val: u8,
 }
 
 #[derive(Clone, Component)]
 pub struct TurnPredictionCard {
-    pub turn: i32,
+    pub turn: u8,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]

@@ -52,6 +52,10 @@ pub struct Active {
     pub entity: Entity,
 }
 
+pub struct NextActive {
+    pub entity: Entity,
+}
+
 fn main() {
     if let Err(e) = dotenv::dotenv() {
         error!("{}", e);
@@ -65,7 +69,8 @@ fn main() {
 
     app.add_loopless_state(Screen::Loading);
 
-    app.add_startup_system(init_cameras).add_system(active_cam_picker);
+    app.add_startup_system(init_cameras)
+        .add_system(active_cam_picker.run_if_resource_exists::<NextActive>());
 
     app.add_plugins(DefaultPlugins)
         .add_plugin(WorldInspectorPlugin::new())
@@ -105,6 +110,7 @@ fn init_cameras(mut commands: Commands, mut info: ResMut<Info>) {
         .insert(UiCameraConfig::default())
         .insert(RenderLayers::default().with(1))
         .insert(Player::new())
+        .insert_bundle(PickingCameraBundle::default())
         .id();
     commands.insert_resource(Active { entity: primary_cam });
     info.turn_order.push(primary_cam);
@@ -129,8 +135,14 @@ fn init_cameras(mut commands: Commands, mut info: ResMut<Info>) {
     }
 }
 
-fn active_cam_picker(mut commands: Commands, active: Res<Active>, mut cams: Query<(Entity, &mut Camera)>) {
-    if active.is_changed() {
+fn active_cam_picker(
+    mut commands: Commands,
+    mut active: ResMut<Active>,
+    next_active: Res<NextActive>,
+    mut cams: Query<(Entity, &mut Camera)>,
+) {
+    if next_active.entity != active.entity {
+        active.entity = next_active.entity;
         for (entity, mut camera) in cams.iter_mut() {
             if active.entity == entity {
                 camera.is_active = true;
@@ -141,6 +153,7 @@ fn active_cam_picker(mut commands: Commands, active: Res<Active>, mut cams: Quer
             }
         }
     }
+    commands.remove_resource::<NextActive>();
 }
 
 #[derive(Component)]

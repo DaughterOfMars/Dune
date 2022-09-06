@@ -4,53 +4,33 @@ use std::{
 };
 
 use bevy::{math::vec3, prelude::*};
-use bevy_mod_picking::{PickableBundle, PickingEvent};
+use bevy_mod_picking::PickableBundle;
 use iyes_loopless::{
     prelude::{ConditionHelpers, IntoConditionalSystem},
     state::{CurrentState, NextState},
 };
 use maplit::hashset;
 
+use super::{FactionPickedEvent, SetupPhase};
 use crate::{
-    components::{Card, Faction, FactionPredictionCard, Player, Spice, Troop, TurnPredictionCard, Unique},
+    components::{Card, Faction, FactionPredictionCard, Spice, Troop, Unique},
     game::Phase,
     lerper::{InterpolationFunction, Lerp, UITransform},
     resources::{Data, Info},
     util::divide_spice,
-    Active, GameEntity, Screen,
+    Active, GameEntity, NextActive, Screen,
 };
 
-pub struct SetupPlugin;
+pub struct ChooseFactionsPlugin;
 
-impl Plugin for SetupPlugin {
+impl Plugin for ChooseFactionsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<FactionPickedEvent>();
         app.add_system(
-            pick_factions_step
-                .run_in_state(Screen::Game)
-                .run_in_state(Phase::Setup(SetupPhase::ChooseFactions)),
-        )
-        .add_system(
-            faction_card_picker
+            choose_factions_step
                 .run_in_state(Screen::Game)
                 .run_in_state(Phase::Setup(SetupPhase::ChooseFactions)),
         );
     }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum SetupPhase {
-    ChooseFactions,
-    Prediction,
-    AtStart,
-    DealTraitors,
-    PickTraitors,
-    DealTreachery,
-}
-
-pub struct FactionPickedEvent {
-    entity: Entity,
-    faction: Faction,
 }
 
 struct ChooseFactionsStep {
@@ -77,10 +57,10 @@ impl FromWorld for ChooseFactionsStep {
     }
 }
 
-fn pick_factions_step(
+fn choose_factions_step(
     mut commands: Commands,
     data: Res<Data>,
-    mut active: ResMut<Active>,
+    active: Res<Active>,
     phase: Res<CurrentState<Phase>>,
     mut picked_events: EventReader<FactionPickedEvent>,
     asset_server: Res<AssetServer>,
@@ -94,6 +74,7 @@ fn pick_factions_step(
 
     for FactionPickedEvent { entity, faction } in picked_events.iter() {
         if *entity == active.entity {
+            commands.entity(*entity).insert(*faction);
             state.remaining_factions.remove(faction);
             for entity in state.faction_cards.drain(..) {
                 // TODO: animate them away~
@@ -240,7 +221,7 @@ fn pick_factions_step(
     }
     if state.faction_cards.is_empty() {
         if let Some(player_entity) = state.pick_queue.pop_front() {
-            active.entity = player_entity;
+            commands.insert_resource(NextActive { entity: player_entity });
             for (i, faction) in state.remaining_factions.clone().into_iter().enumerate() {
                 let prediction_front_texture =
                     asset_server.get_handle(format!("predictions/prediction_{}.png", faction.code()).as_str());
@@ -259,7 +240,6 @@ fn pick_factions_step(
                             )
                             .with_interpolation(InterpolationFunction::Easing),
                         )
-                        .insert(Unique::new(faction))
                         .insert_bundle(SpatialBundle::default())
                         .with_children(|parent| {
                             parent
@@ -284,83 +264,4 @@ fn pick_factions_step(
             commands.insert_resource(NextState(phase.0.next()));
         }
     }
-}
-
-fn faction_card_picker(
-    mut commands: Commands,
-    active: Res<Active>,
-    faction_cards: Query<(&FactionPredictionCard, Option<&Lerp>)>,
-    free_cams: Query<Entity, (With<Camera>, With<Player>, Without<Faction>)>,
-    parents: Query<&Parent>,
-    mut picking_events: EventReader<PickingEvent>,
-    mut picked_events: EventWriter<FactionPickedEvent>,
-) {
-    for event in picking_events.iter() {
-        if let PickingEvent::Clicked(clicked) = event {
-            let mut clicked = *clicked;
-            loop {
-                if let Ok((faction_card, lerp)) = faction_cards.get(clicked) {
-                    if lerp.is_none() {
-                        if let Ok(active_cam) = free_cams.get(active.entity) {
-                            commands.entity(active_cam).insert(*&faction_card.faction);
-                            picked_events.send(FactionPickedEvent {
-                                entity: active_cam,
-                                faction: *&faction_card.faction,
-                            });
-                            return;
-                        } else {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                } else {
-                    if let Ok(parent) = parents.get(clicked).map(|p| p.get()) {
-                        clicked = parent;
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn predict_winner_step(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let card_face = asset_server.get_handle("card.gltf#Mesh0/Primitive0");
-    let card_back = asset_server.get_handle("card.gltf#Mesh0/Primitive1");
-
-    let prediction_back_texture = asset_server.get_handle("predictions/prediction_back.png");
-    let prediction_back_material = materials.add(StandardMaterial::from(prediction_back_texture));
-
-    (1..=15).for_each(|turn| {
-        let prediction_front_texture =
-            asset_server.get_handle(format!("predictions/prediction_t{}.png", turn).as_str());
-        let prediction_front_material = materials.add(StandardMaterial::from(prediction_front_texture));
-        commands
-            .spawn_bundle(SpatialBundle::default())
-            .insert(Unique::new(Faction::BeneGesserit))
-            .insert(GameEntity)
-            .insert(TurnPredictionCard { turn })
-            .with_children(|parent| {
-                parent
-                    .spawn_bundle(PbrBundle {
-                        mesh: card_face.clone(),
-                        material: prediction_front_material,
-                        ..Default::default()
-                    })
-                    .insert_bundle(PickableBundle::default());
-                parent
-                    .spawn_bundle(PbrBundle {
-                        mesh: card_back.clone(),
-                        material: prediction_back_material.clone(),
-                        ..Default::default()
-                    })
-                    .insert_bundle(PickableBundle::default());
-            });
-    });
 }
