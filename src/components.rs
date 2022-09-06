@@ -1,11 +1,6 @@
-use bevy::{
-    ecs::entity::Entity,
-    math::Vec3,
-    prelude::{Bundle, Component},
-};
+use bevy::{ecs::entity::Entity, math::Vec3, prelude::Component};
+use bevy_inspector_egui::Inspectable;
 use serde::{Deserialize, Serialize};
-
-use crate::GameEntity;
 
 #[derive(Copy, Clone, Component)]
 pub struct Spice {
@@ -47,15 +42,15 @@ impl SpiceNode {
     }
 }
 
-#[derive(Copy, Clone, Debug, Component)]
+#[derive(Copy, Clone, Debug, Component, Inspectable)]
 pub struct Unique {
-    pub faction: Faction,
+    pub entity: Entity,
     pub public: bool,
 }
 
 impl Unique {
-    pub fn new(faction: Faction) -> Self {
-        Self { faction, public: false }
+    pub fn new(entity: Entity) -> Self {
+        Self { entity, public: false }
     }
 }
 

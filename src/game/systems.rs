@@ -15,7 +15,7 @@ pub fn trigger_stack_troops(
         for (entity, faction) in troops.iter().filter_map(|(entity, unique, troop)| {
             troop.location.and_then(|location| {
                 if location == loc_entity {
-                    Some((entity, unique.faction))
+                    Some((entity, unique.entity))
                 } else {
                     None
                 }
@@ -44,20 +44,6 @@ pub fn public_troop_system(mut troops: Query<(&Troop, &mut Unique), Changed<Troo
         unique.public = troop.location.is_some();
     }
 }
-
-// pub fn active_player(
-// info: Res<Info>,
-// players: Query<&Player>,
-// mut uniques: Query<(&mut Visible, &Unique)>,
-// ) {
-// let entity = info.get_active_player();
-// let active_player_faction = players.get(entity).unwrap().faction;
-// for (mut visible, unique) in uniques.iter_mut() {
-// if visible.is_visible != (unique.public || unique.faction == active_player_faction) {
-// visible.is_visible = unique.public || unique.faction == active_player_faction;
-// }
-// }
-// }
 
 pub fn phase_text_system(
     phase: Res<CurrentState<Phase>>,
@@ -95,6 +81,22 @@ pub fn phase_text_system(
     }
 }
 
+pub fn active_player_text_system(
+    data: Res<Data>,
+    active: Res<Active>,
+    players: Query<&Faction, With<Player>>,
+    mut text: Query<&mut Text, With<ActivePlayerText>>,
+) {
+    if active.is_changed() {
+        text.single_mut().sections[0].value = players
+            .get(active.entity)
+            .ok()
+            .and_then(|e| data.factions.get(e))
+            .map(|f| f.name.clone())
+            .unwrap_or(format!("{:?}", active.entity));
+    }
+}
+
 pub fn get_initial_spice() {
     todo!();
 }
@@ -129,7 +131,7 @@ pub fn place_troops(
                         .unwrap();
                     let mut troop_stack = troops
                         .iter_mut()
-                        .filter(|(_, troop, unique, _)| &unique.faction == faction && troop.location.is_none())
+                        .filter(|(entity, troop, unique, _)| unique.entity == *entity && troop.location.is_none())
                         .collect::<Vec<_>>();
                     troop_stack.sort_by(|(_, _, _, transform1), (_, _, _, transform2)| {
                         transform1.translation.y.partial_cmp(&transform2.translation.y).unwrap()
@@ -155,13 +157,13 @@ pub fn place_troops(
 pub fn render_unique(
     mut commands: Commands,
     mut uniques: Query<(Entity, &Unique), Changed<Unique>>,
-    players: Query<(&RenderLayers, &Faction), With<Camera>>,
+    players: Query<&RenderLayers, (With<Player>, With<Camera>)>,
 ) {
     for (entity, unique) in uniques.iter_mut() {
         if unique.public {
             commands.entity(entity).insert(RenderLayers::default());
         } else {
-            if let Some((layer, _)) = players.iter().find(|(_, faction)| *faction == &unique.faction) {
+            if let Ok(layer) = players.get(unique.entity) {
                 commands.entity(entity).insert(layer.without(0));
             }
         }

@@ -40,9 +40,10 @@ pub struct FactionPickedEvent {
     faction: Faction,
 }
 
+// Converts PickingEvents to FactionPickedEvents
 fn faction_card_picker(
     active: Res<Active>,
-    faction_cards: Query<(&FactionPredictionCard, Option<&Lerp>)>,
+    faction_cards: Query<&FactionPredictionCard, Without<Lerp>>,
     parents: Query<&Parent>,
     mut picking_events: EventReader<PickingEvent>,
     mut picked_events: EventWriter<FactionPickedEvent>,
@@ -52,16 +53,12 @@ fn faction_card_picker(
             if let PickingEvent::Clicked(clicked) = event {
                 let mut clicked = *clicked;
                 loop {
-                    if let Ok((faction_card, lerp)) = faction_cards.get(clicked) {
-                        if lerp.is_none() {
-                            picked_events.send(FactionPickedEvent {
-                                entity: active.entity,
-                                faction: faction_card.faction,
-                            });
-                            return;
-                        } else {
-                            break;
-                        }
+                    if let Ok(faction_card) = faction_cards.get(clicked) {
+                        picked_events.send(FactionPickedEvent {
+                            entity: active.entity,
+                            faction: faction_card.faction,
+                        });
+                        return;
                     } else {
                         if let Ok(parent) = parents.get(clicked).map(|p| p.get()) {
                             clicked = parent;

@@ -1,3 +1,4 @@
+mod active;
 mod components;
 mod data;
 mod game;
@@ -21,7 +22,8 @@ use bevy::{
     },
     utils::default,
 };
-use bevy_inspector_egui::WorldInspectorPlugin;
+#[cfg(feature = "debug")]
+use bevy_inspector_egui::{RegisterInspectable, WorldInspectorPlugin};
 use bevy_mod_picking::{DefaultPickingPlugins, PickableBundle, PickingCameraBundle};
 use iyes_loopless::{
     prelude::{AppLooplessStateExt, IntoConditionalSystem},
@@ -29,7 +31,15 @@ use iyes_loopless::{
 };
 use rand::seq::SliceRandom;
 
-use self::{components::*, game::*, input::GameInputPlugin, lerper::LerpPlugin, resources::*, util::card_jitter};
+use self::{
+    active::{Active, ActivePlugin},
+    components::*,
+    game::*,
+    input::GameInputPlugin,
+    lerper::LerpPlugin,
+    resources::*,
+    util::card_jitter,
+};
 
 pub const MAX_PLAYERS: u8 = 6;
 
@@ -48,14 +58,6 @@ struct LoadingAssets {
     assets: Vec<HandleUntyped>,
 }
 
-pub struct Active {
-    pub entity: Entity,
-}
-
-pub struct NextActive {
-    pub entity: Entity,
-}
-
 fn main() {
     if let Err(e) = dotenv::dotenv() {
         error!("{}", e);
@@ -69,20 +71,25 @@ fn main() {
 
     app.add_loopless_state(Screen::Loading);
 
-    app.add_startup_system(init_cameras)
-        .add_system(active_cam_picker.run_if_resource_exists::<NextActive>());
+    app.add_startup_system(init_cameras).add_system(active_cam_picker);
+
+    #[cfg(feature = "debug")]
+    app.add_plugin(WorldInspectorPlugin::new());
 
     app.add_plugins(DefaultPlugins)
-        .add_plugin(WorldInspectorPlugin::new())
         .add_plugin(GameInputPlugin)
         .add_plugin(GamePlugin)
         .add_plugin(LerpPlugin)
-        .add_plugins(DefaultPickingPlugins);
+        .add_plugins(DefaultPickingPlugins)
+        .add_plugin(ActivePlugin);
 
     app.add_enter_system(Screen::Loading, init_loading_game);
     app.add_system(load_game.run_in_state(Screen::Loading));
     app.add_exit_system(Screen::Loading, tear_down);
     app.add_enter_system(Screen::Game, init_game);
+
+    #[cfg(feature = "debug")]
+    app.register_inspectable::<Unique>();
 
     app.run();
 }
@@ -112,7 +119,6 @@ fn init_cameras(mut commands: Commands, mut info: ResMut<Info>) {
         .insert(Player::new())
         .insert_bundle(PickingCameraBundle::default())
         .id();
-    commands.insert_resource(Active { entity: primary_cam });
     info.turn_order.push(primary_cam);
     for index in 2..MAX_PLAYERS + 1 {
         info.turn_order.push(
@@ -133,16 +139,15 @@ fn init_cameras(mut commands: Commands, mut info: ResMut<Info>) {
                 .id(),
         );
     }
+    let mut rng = rand::thread_rng();
+    info.turn_order.shuffle(&mut rng);
+    commands.insert_resource(Active {
+        entity: info.turn_order[0],
+    });
 }
 
-fn active_cam_picker(
-    mut commands: Commands,
-    mut active: ResMut<Active>,
-    next_active: Res<NextActive>,
-    mut cams: Query<(Entity, &mut Camera)>,
-) {
-    if next_active.entity != active.entity {
-        active.entity = next_active.entity;
+fn active_cam_picker(mut commands: Commands, active: Res<Active>, mut cams: Query<(Entity, &mut Camera)>) {
+    if active.is_changed() {
         for (entity, mut camera) in cams.iter_mut() {
             if active.entity == entity {
                 camera.is_active = true;
@@ -153,7 +158,6 @@ fn active_cam_picker(
             }
         }
     }
-    commands.remove_resource::<NextActive>();
 }
 
 #[derive(Component)]
@@ -232,14 +236,11 @@ fn load_game(
 
 fn init_game(
     mut commands: Commands,
-    mut info: ResMut<Info>,
     data: Res<Data>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut rng = rand::thread_rng();
-    info.turn_order.shuffle(&mut rng);
     // Light
     commands
         .spawn_bundle(PointLightBundle {
@@ -289,6 +290,31 @@ fn init_game(
         })
         .insert(GameEntity)
         .insert(PhaseText);
+
+    commands
+        .spawn_bundle(TextBundle {
+            style: Style {
+                position_type: PositionType::Absolute,
+                position: UiRect {
+                    top: Val::Px(5.0),
+                    right: Val::Px(5.0),
+                    ..default()
+                },
+                ..default()
+            },
+            text: Text::from_section(
+                "Test",
+                TextStyle {
+                    font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                    font_size: 40.0,
+                    color: Color::WHITE,
+                    ..default()
+                },
+            ),
+            ..default()
+        })
+        .insert(GameEntity)
+        .insert(ActivePlayerText);
 
     for (location, location_data) in data.locations.iter() {
         commands

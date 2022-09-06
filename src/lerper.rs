@@ -276,7 +276,7 @@ pub struct UIElement {
     pub cam: Entity,
 }
 
-pub struct LerpCompleted {
+pub struct LerpCompletedEvent {
     pub entity: Entity,
 }
 
@@ -284,7 +284,7 @@ pub struct LerpPlugin;
 
 impl Plugin for LerpPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<LerpCompleted>()
+        app.add_event::<LerpCompletedEvent>()
             .add_system(init_lerp_system)
             .add_system(lerp_ui_system)
             .add_system(lerp_world_system)
@@ -397,7 +397,7 @@ fn init_lerp_system(
 
 fn lerp_ui_system(
     mut commands: Commands,
-    mut event_writer: EventWriter<LerpCompleted>,
+    mut event_writer: EventWriter<LerpCompletedEvent>,
     time: Res<Time>,
     mut lerps: Query<(Entity, &mut Lerp, &LerpUI, &mut UITransform), Without<Camera>>,
 ) {
@@ -407,7 +407,7 @@ fn lerp_ui_system(
         } else {
             if lerp.remaining_time <= 0.0 {
                 commands.entity(entity).remove::<Lerp>().remove::<LerpUI>();
-                event_writer.send(LerpCompleted { entity });
+                event_writer.send(LerpCompletedEvent { entity });
             } else {
                 lerp.remaining_time -= time.delta_seconds() * SPEED_MOD;
                 let lerp_amount = lerp
@@ -424,7 +424,7 @@ fn lerp_ui_system(
 
 fn lerp_world_system(
     mut commands: Commands,
-    mut event_writer: EventWriter<LerpCompleted>,
+    mut event_writer: EventWriter<LerpCompletedEvent>,
     time: Res<Time>,
     mut lerps: Query<(Entity, &mut Lerp, &LerpWorld, &mut Transform)>,
 ) {
@@ -435,7 +435,7 @@ fn lerp_world_system(
             if lerp.remaining_time <= 0.0 {
                 *transform = lerp_world.dest;
                 commands.entity(entity).remove::<Lerp>().remove::<LerpWorld>();
-                event_writer.send(LerpCompleted { entity });
+                event_writer.send(LerpCompletedEvent { entity });
             } else {
                 lerp.remaining_time -= time.delta_seconds() * SPEED_MOD;
                 let lerp_amount = lerp

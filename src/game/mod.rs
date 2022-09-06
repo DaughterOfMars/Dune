@@ -34,6 +34,7 @@ impl Plugin for GamePlugin {
         app.add_plugin(SetupPlugin);
 
         app.add_system(phase_text_system.run_in_state(Screen::Game));
+        app.add_system(active_player_text_system.run_in_state(Screen::Game));
         app.add_system(public_troop_system.run_in_state(Screen::Game));
         app.add_system(trigger_stack_troops.run_in_state(Screen::Game));
         app.add_system(shuffle_system.run_in_state(Screen::Game));
@@ -45,6 +46,9 @@ impl Plugin for GamePlugin {
 
 #[derive(Component)]
 pub struct PhaseText;
+
+#[derive(Component)]
+pub struct ActivePlayerText;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Phase {
