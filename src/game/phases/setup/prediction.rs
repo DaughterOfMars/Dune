@@ -7,13 +7,13 @@ use iyes_loopless::{
     state::{CurrentState, NextState},
 };
 
-use super::{FactionPickedEvent, SetupPhase, TurnPickedEvent};
+use super::SetupPhase;
 use crate::{
     active::{Active, NextActive},
     components::{Card, Faction, FactionPredictionCard, Player, TurnPredictionCard, Unique},
-    game::Phase,
+    game::{Phase, PickedEvent},
     lerper::{InterpolationFunction, Lerp, UITransform},
-    resources::Data,
+    resources::{Data, Info},
     GameEntity, Screen,
 };
 
@@ -132,14 +132,19 @@ fn present_factions(
 
 fn await_faction_pick(
     mut commands: Commands,
-    mut picked_events: EventReader<FactionPickedEvent>,
+    mut picked_events: EventReader<PickedEvent<FactionPredictionCard>>,
     faction_cards: Query<(Entity, &Unique), With<FactionPredictionCard>>,
 ) {
-    for FactionPickedEvent { entity, faction } in picked_events.iter() {
+    for PickedEvent {
+        picker,
+        picked: _,
+        inner: FactionPredictionCard { faction },
+    } in picked_events.iter()
+    {
         commands
-            .entity(*entity)
+            .entity(*picker)
             .insert(FactionPredictionCard { faction: *faction });
-        for (entity, _) in faction_cards.iter().filter(|(_, unique)| unique.entity == *entity) {
+        for (entity, _) in faction_cards.iter().filter(|(_, unique)| unique.entity == *picker) {
             // TODO: animate them away~
             commands.entity(entity).despawn_recursive();
         }
@@ -207,17 +212,26 @@ fn present_turns(
 
 fn await_turn_pick(
     mut commands: Commands,
-    mut picked_events: EventReader<TurnPickedEvent>,
+    mut picked_events: EventReader<PickedEvent<TurnPredictionCard>>,
     phase: Res<CurrentState<Phase>>,
     turn_cards: Query<(Entity, &Unique), With<TurnPredictionCard>>,
+    info: Res<Info>,
 ) {
-    for TurnPickedEvent { entity, turn } in picked_events.iter() {
-        commands.entity(*entity).insert(TurnPredictionCard { turn: *turn });
-        for (entity, _) in turn_cards.iter().filter(|(_, unique)| unique.entity == *entity) {
+    for PickedEvent {
+        picker,
+        picked: _,
+        inner: TurnPredictionCard { turn },
+    } in picked_events.iter()
+    {
+        commands.entity(*picker).insert(TurnPredictionCard { turn: *turn });
+        for (entity, _) in turn_cards.iter().filter(|(_, unique)| unique.entity == *picker) {
             // TODO: animate them away~
             commands.entity(entity).despawn_recursive();
         }
         commands.insert_resource(NextState(PredictionState::CheckBGPlaying));
+        commands.insert_resource(NextActive {
+            entity: info.turn_order[0],
+        });
         commands.insert_resource(NextState(phase.0.next()))
     }
 }

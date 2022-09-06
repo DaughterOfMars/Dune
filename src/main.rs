@@ -73,11 +73,12 @@ fn main() {
 
     app.add_startup_system(init_cameras).add_system(active_cam_picker);
 
+    app.add_plugins(DefaultPlugins);
+
     #[cfg(feature = "debug")]
     app.add_plugin(WorldInspectorPlugin::new());
 
-    app.add_plugins(DefaultPlugins)
-        .add_plugin(GameInputPlugin)
+    app.add_plugin(GameInputPlugin)
         .add_plugin(GamePlugin)
         .add_plugin(LerpPlugin)
         .add_plugins(DefaultPickingPlugins)
@@ -339,7 +340,6 @@ fn init_game(
                             visibility: Visibility { is_visible: true },
                             ..default()
                         })
-                        .insert_bundle(PickableBundle::default())
                         .insert(LocationSector {
                             location: location.clone(),
                             sector,
@@ -359,7 +359,7 @@ fn init_game(
     let treachery_back_material = materials.add(StandardMaterial::from(treachery_back_texture));
 
     commands
-        .spawn_bundle((Deck(vec![]),))
+        .spawn_bundle((Deck, TreacheryDeck))
         .insert_bundle(SpatialBundle::from_transform(
             Transform::from_translation(vec3(1.23, 0.0049, -0.87))
                 * Transform::from_rotation(Quat::from_rotation_z(PI)),
@@ -390,46 +390,11 @@ fn init_game(
             }
         });
 
-    let traitor_back_texture = asset_server.get_handle("traitor/traitor_back.png");
-    let traitor_back_material = materials.add(StandardMaterial::from(traitor_back_texture));
-
-    commands
-        .spawn_bundle((Deck(vec![]),))
-        .insert_bundle(SpatialBundle::from_transform(
-            Transform::from_translation(vec3(1.23, 0.0049, -0.3)) * Transform::from_rotation(Quat::from_rotation_z(PI)),
-        ))
-        .with_children(|parent| {
-            for (i, (leader, leader_data)) in data.leaders.iter().enumerate() {
-                let traitor_front_texture =
-                    asset_server.get_handle(format!("traitor/traitor_{}.png", leader_data.texture.as_str()).as_str());
-                let traitor_front_material = materials.add(StandardMaterial::from(traitor_front_texture));
-
-                parent
-                    .spawn_bundle((Card, TraitorCard { leader: leader.clone() }))
-                    .insert_bundle(SpatialBundle::from_transform(
-                        Transform::from_translation(Vec3::Y * 0.001 * (i as f32)) * card_jitter(),
-                    ))
-                    .insert(GameEntity)
-                    .with_children(|parent| {
-                        parent.spawn_bundle(PbrBundle {
-                            mesh: card_face.clone(),
-                            material: traitor_front_material,
-                            ..default()
-                        });
-                        parent.spawn_bundle(PbrBundle {
-                            mesh: card_back.clone(),
-                            material: traitor_back_material.clone(),
-                            ..default()
-                        });
-                    });
-            }
-        });
-
     let spice_back_texture = asset_server.get_handle("spice/spice_back.png");
     let spice_back_material = materials.add(StandardMaterial::from(spice_back_texture));
 
     commands
-        .spawn_bundle((Deck(vec![]),))
+        .spawn_bundle((Deck, SpiceDeck))
         .insert_bundle(SpatialBundle {
             transform: Transform::from_translation(vec3(1.23, 0.0049, 0.3))
                 * Transform::from_rotation(Quat::from_rotation_z(PI)),
@@ -466,7 +431,7 @@ fn init_game(
     let storm_back_material = materials.add(StandardMaterial::from(storm_back_texture));
 
     commands
-        .spawn_bundle((Deck(vec![]),))
+        .spawn_bundle((Deck, StormDeck))
         .insert_bundle(SpatialBundle::from_transform(
             Transform::from_translation(vec3(1.23, 0.0049, 0.87)) * Transform::from_rotation(Quat::from_rotation_z(PI)),
         ))

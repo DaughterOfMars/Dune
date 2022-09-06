@@ -8,11 +8,11 @@ use iyes_loopless::{
 };
 use maplit::hashset;
 
-use super::{FactionPickedEvent, SetupPhase};
+use super::SetupPhase;
 use crate::{
     active::AdvanceActive,
     components::{Card, Faction, FactionPredictionCard, Player, Spice, Troop, Unique},
-    game::Phase,
+    game::{Phase, PickedEvent},
     lerper::{InterpolationFunction, Lerp, UITransform},
     resources::Data,
     util::divide_spice,
@@ -119,15 +119,20 @@ fn present_factions(
 
 fn await_pick(
     mut commands: Commands,
-    mut picked_events: EventReader<FactionPickedEvent>,
+    mut picked_events: EventReader<PickedEvent<FactionPredictionCard>>,
     faction_cards: Query<(Entity, &Unique), With<FactionPredictionCard>>,
     data: Res<Data>,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for FactionPickedEvent { entity, faction } in picked_events.iter() {
-        commands.entity(*entity).insert(*faction);
-        for (entity, _) in faction_cards.iter().filter(|(_, unique)| unique.entity == *entity) {
+    for PickedEvent {
+        picker,
+        picked: _,
+        inner: FactionPredictionCard { faction },
+    } in picked_events.iter()
+    {
+        commands.entity(*picker).insert(*faction);
+        for (entity, _) in faction_cards.iter().filter(|(_, unique)| unique.entity == *picker) {
             // TODO: animate them away~
             commands.entity(entity).despawn_recursive();
         }
@@ -148,7 +153,7 @@ fn await_pick(
             .spawn_bundle(SpatialBundle::from_transform(Transform::from_translation(vec3(
                 0.0, 0.27, 1.34,
             ))))
-            .insert(Unique::new(*entity))
+            .insert(Unique::new(*picker))
             .insert(GameEntity)
             .insert(data.camera_nodes.shield)
             .with_children(|parent| {
@@ -170,39 +175,34 @@ fn await_pick(
 
         for (i, (_, leader_data)) in data.leaders.iter().filter(|(_, l)| l.faction == *faction).enumerate() {
             let texture = asset_server.get_handle(format!("leaders/{}.png", leader_data.texture).as_str());
-            let material = materials.add(StandardMaterial::from(texture));
             commands
                 .spawn_bundle(SpatialBundle::from_transform(Transform::from_translation(
                     data.token_nodes.leaders[i],
                 )))
-                .insert(Unique::new(*entity))
+                .insert(Unique::new(*picker))
                 .insert_bundle(PickableBundle::default())
                 .insert(GameEntity)
                 .insert_bundle(PbrBundle {
                     mesh: big_token.clone(),
-                    material,
+                    material: materials.add(StandardMaterial::from(texture)),
                     ..Default::default()
                 });
         }
 
         let troop_texture = asset_server.get_handle(format!("tokens/{}_troop.png", faction.code()).as_str());
-        let troop_material = materials.add(StandardMaterial::from(troop_texture));
 
         for i in 0..20 {
             commands
                 .spawn_bundle(SpatialBundle::from_transform(Transform::from_translation(
                     data.token_nodes.fighters[0] + (i as f32 * 0.0036 * Vec3::Y),
                 )))
-                .insert(Unique::new(*entity))
+                .insert(Unique::new(*picker))
                 .insert_bundle(PickableBundle::default())
                 .insert(GameEntity)
-                .insert(Troop {
-                    value: 1,
-                    location: None,
-                })
+                .insert(Troop { value: 1 })
                 .insert_bundle(PbrBundle {
                     mesh: little_token.clone(),
-                    material: troop_material.clone(),
+                    material: materials.add(StandardMaterial::from(troop_texture.clone())),
                     ..Default::default()
                 });
         }
@@ -235,7 +235,7 @@ fn await_pick(
                 .spawn_bundle(SpatialBundle::from_transform(Transform::from_translation(
                     data.token_nodes.spice[s] + (i as f32 * 0.0036 * Vec3::Y),
                 )))
-                .insert(Unique::new(*entity))
+                .insert(Unique::new(*picker))
                 .insert_bundle(PickableBundle::default())
                 .insert(GameEntity)
                 .insert(Spice { value })

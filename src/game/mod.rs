@@ -7,6 +7,7 @@ use bevy::{
     prelude::*,
     render::camera::{Camera, OrthographicProjection},
 };
+use bevy_mod_picking::PickingEvent;
 use iyes_loopless::prelude::{AppLooplessStateExt, IntoConditionalSystem};
 use rand::prelude::SliceRandom;
 
@@ -18,7 +19,11 @@ use self::{
     systems::*,
 };
 use crate::{
-    components::{Deck, Disorganized, LocationSector, Player, Troop, Unique},
+    active::Active,
+    components::{
+        Deck, Disorganized, FactionPredictionCard, LocationSector, Player, TraitorCard, Troop, TurnPredictionCard,
+        Unique,
+    },
     lerper::Lerp,
     resources::{Data, Info},
     util::card_jitter,
@@ -32,6 +37,15 @@ impl Plugin for GamePlugin {
         app.add_loopless_state(Phase::Setup(SetupPhase::ChooseFactions));
 
         app.add_plugin(SetupPlugin);
+
+        app.add_event::<PickedEvent<FactionPredictionCard>>()
+            .add_event::<PickedEvent<TurnPredictionCard>>()
+            .add_event::<PickedEvent<TraitorCard>>()
+            .add_event::<PickedEvent<LocationSector>>()
+            .add_system(card_picker::<FactionPredictionCard>.run_in_state(Screen::Game))
+            .add_system(card_picker::<TurnPredictionCard>.run_in_state(Screen::Game))
+            .add_system(card_picker::<TraitorCard>.run_in_state(Screen::Game))
+            .add_system(card_picker::<LocationSector>.run_in_state(Screen::Game));
 
         app.add_system(phase_text_system.run_in_state(Screen::Game));
         app.add_system(active_player_text_system.run_in_state(Screen::Game));
@@ -71,10 +85,7 @@ impl Phase {
             Phase::Setup(subphase) => match subphase {
                 SetupPhase::ChooseFactions => Phase::Setup(SetupPhase::Prediction),
                 SetupPhase::Prediction => Phase::Setup(SetupPhase::AtStart),
-                SetupPhase::AtStart => Phase::Setup(SetupPhase::DealTraitors),
-                SetupPhase::DealTraitors => Phase::Setup(SetupPhase::PickTraitors),
-                SetupPhase::PickTraitors => Phase::Setup(SetupPhase::DealTreachery),
-                SetupPhase::DealTreachery => Phase::Storm(StormPhase::Reveal),
+                SetupPhase::AtStart => Phase::Storm(StormPhase::Reveal),
             },
             Phase::Storm(subphase) => match subphase {
                 StormPhase::Reveal => Phase::Storm(StormPhase::WeatherControl),
@@ -102,19 +113,13 @@ fn reset_system() {
 #[derive(Component)]
 pub struct Shuffling(pub usize);
 
-pub fn init_shuffle_decks(mut commands: Commands, decks: Query<Entity, With<Deck>>) {
-    for deck in decks.iter() {
-        commands.entity(deck).insert(Shuffling(5));
-    }
-}
-
 pub fn shuffle_system(
     mut commands: Commands,
-    mut decks: Query<(Entity, &mut Deck, &Children, &mut Shuffling)>,
+    mut decks: Query<(Entity, &Children, &mut Shuffling), With<Deck>>,
     lerps: Query<&Lerp>,
 ) {
     let mut rng = rand::thread_rng();
-    for (e, mut deck, children, mut shuffling) in decks.iter_mut() {
+    for (e, children, mut shuffling) in decks.iter_mut() {
         if children.iter().any(|c| lerps.get(*c).is_ok()) {
             shuffling.0 -= 1;
             if shuffling.0 == 0 {
@@ -124,10 +129,48 @@ pub fn shuffle_system(
         }
         let mut cards = children.iter().enumerate().collect::<Vec<_>>();
         cards.shuffle(&mut rng);
-        deck.0 = cards.iter().map(|(_, e)| **e).collect();
         for (i, card) in cards {
             let transform = Transform::from_translation(Vec3::Y * 0.001 * (i as f32)) * card_jitter();
             commands.entity(*card).insert(Lerp::world_to(transform, 0.2, 0.0));
+        }
+    }
+}
+
+pub struct PickedEvent<T> {
+    picker: Entity,
+    picked: Entity,
+    inner: T,
+}
+
+// Converts PickingEvents to FactionPickedEvents
+fn card_picker<T: Component + Clone>(
+    active: Res<Active>,
+    cards: Query<&T, Without<Lerp>>,
+    parents: Query<&Parent>,
+    mut picking_events: EventReader<PickingEvent>,
+    mut picked_events: EventWriter<PickedEvent<T>>,
+) {
+    if !cards.is_empty() {
+        for event in picking_events.iter() {
+            if let PickingEvent::Clicked(clicked) = event {
+                let mut clicked = *clicked;
+                loop {
+                    if let Ok(card) = cards.get(clicked) {
+                        picked_events.send(PickedEvent {
+                            picker: active.entity,
+                            picked: clicked,
+                            inner: card.clone(),
+                        });
+                        return;
+                    } else {
+                        if let Ok(parent) = parents.get(clicked).map(|p| p.get()) {
+                            clicked = parent;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
         }
     }
 }

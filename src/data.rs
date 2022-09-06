@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bevy::{
     math::{Vec2, Vec3},
@@ -12,7 +12,7 @@ use crate::components::{CardEffect, Faction, Location, Terrain, TreacheryCard};
 pub struct FactionStartingValues {
     pub units: u8,
     #[serde(default)]
-    pub possible_locations: Option<Vec<Location>>,
+    pub possible_locations: Option<HashSet<Location>>,
     pub spice: u8,
 }
 

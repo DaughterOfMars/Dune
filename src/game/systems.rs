@@ -2,19 +2,22 @@ use bevy::render::view::RenderLayers;
 use iyes_loopless::state::CurrentState;
 
 use super::*;
-use crate::{components::Faction, data::FactionStartingValues, Active};
+use crate::{
+    components::{Faction, Location},
+    Active,
+};
 
 pub fn trigger_stack_troops(
     data: Res<Data>,
     mut commands: Commands,
-    troops: Query<(Entity, &Unique, &Troop)>,
+    troops: Query<(Entity, &Unique, &Troop, Option<&Location>)>,
     locations: Query<(Entity, &LocationSector), With<Disorganized>>,
 ) {
     for (loc_entity, loc_sec) in locations.iter() {
         let mut map = HashMap::new();
-        for (entity, faction) in troops.iter().filter_map(|(entity, unique, troop)| {
-            troop.location.and_then(|location| {
-                if location == loc_entity {
+        for (entity, faction) in troops.iter().filter_map(|(entity, unique, troop, location)| {
+            location.and_then(|location| {
+                if *location == loc_sec.location {
                     Some((entity, unique.entity))
                 } else {
                     None
@@ -39,31 +42,19 @@ pub fn trigger_stack_troops(
     }
 }
 
-pub fn public_troop_system(mut troops: Query<(&Troop, &mut Unique), Changed<Troop>>) {
-    for (troop, mut unique) in troops.iter_mut() {
-        unique.public = troop.location.is_some();
+pub fn public_troop_system(mut troops: Query<(&Troop, &mut Unique, Option<&Location>), Changed<Troop>>) {
+    for (troop, mut unique, location) in troops.iter_mut() {
+        unique.public = location.is_some();
     }
 }
 
-pub fn phase_text_system(
-    phase: Res<CurrentState<Phase>>,
-    data: Res<Data>,
-    active: Res<Active>,
-    players: Query<&Faction, With<Player>>,
-    mut text: Query<&mut Text, With<PhaseText>>,
-) {
+pub fn phase_text_system(phase: Res<CurrentState<Phase>>, mut text: Query<&mut Text, With<PhaseText>>) {
     if phase.is_changed() {
         let s = match phase.0 {
             Phase::Setup(subphase) => match subphase {
                 SetupPhase::ChooseFactions => "Choosing Factions...".to_string(),
                 SetupPhase::Prediction => "Bene Gesserit are making a prediction...".to_string(),
-                SetupPhase::AtStart => format!(
-                    "{:?} Initial Placement...",
-                    data.factions.get(players.get(active.entity).unwrap()).unwrap().name
-                ),
-                SetupPhase::DealTraitors => "Dealing Traitor Cards...".to_string(),
-                SetupPhase::PickTraitors => "Picking Traitors...".to_string(),
-                SetupPhase::DealTreachery => "Dealing Treachery Cards...".to_string(),
+                SetupPhase::AtStart => "Initial Placement...".to_string(),
             },
             Phase::Storm(_) => "Storm Phase".to_string(),
             Phase::SpiceBlow => "Spice Blow Phase".to_string(),
@@ -99,59 +90,6 @@ pub fn active_player_text_system(
 
 pub fn get_initial_spice() {
     todo!();
-}
-
-pub fn place_troops(
-    info: Res<Info>,
-    players: Query<(Entity, &Faction), With<Player>>,
-    data: Res<Data>,
-    clickable_locations: Query<(Entity, &LocationSector)>,
-    mut troops: Query<(Entity, &mut Troop, &Unique, &Transform)>,
-    cameras: Query<Entity, (With<Camera>, Without<OrthographicProjection>)>,
-) {
-    println!("Enter: place_troops");
-    let clickables = clickable_locations.iter().map(|(entity, _)| entity).collect::<Vec<_>>();
-
-    for (entity, faction) in players.iter() {
-        let FactionStartingValues {
-            units,
-            possible_locations,
-            spice,
-        } = &data.factions.get(faction).unwrap().starting_values;
-
-        if *units > 0 {
-            if let Some(locations) = possible_locations {
-                if locations.len() == 0 {
-                    // Do nothing
-                } else if locations.len() == 1 {
-                    // Auto place
-                    let (location, loc_sec) = clickable_locations
-                        .iter()
-                        .find(|(_, loc_sec)| loc_sec.location == locations[0])
-                        .unwrap();
-                    let mut troop_stack = troops
-                        .iter_mut()
-                        .filter(|(entity, troop, unique, _)| unique.entity == *entity && troop.location.is_none())
-                        .collect::<Vec<_>>();
-                    troop_stack.sort_by(|(_, _, _, transform1), (_, _, _, transform2)| {
-                        transform1.translation.y.partial_cmp(&transform2.translation.y).unwrap()
-                    });
-                    todo!("lerp in the units")
-                } else {
-                    // Let the player pick
-                    // Highlight the possible locations
-                    todo!()
-                };
-            } else {
-                todo!("go to next player")
-            }
-        } else {
-            todo!("go to next player")
-        }
-    }
-
-    // Move the camera so we can see the board good
-    // enable clickables
 }
 
 pub fn render_unique(

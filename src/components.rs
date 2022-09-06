@@ -10,7 +10,6 @@ pub struct Spice {
 #[derive(Copy, Clone, Component)]
 pub struct Troop {
     pub value: i32,
-    pub location: Option<Entity>,
 }
 
 #[derive(Default, Component)]
@@ -18,7 +17,7 @@ pub struct Storm {
     pub sector: i32,
 }
 
-#[derive(Component)]
+#[derive(Copy, Clone, Debug, Component)]
 pub struct LocationSector {
     pub location: Location,
     pub sector: i32,
@@ -62,8 +61,8 @@ pub struct Prediction {
 
 #[derive(Component)]
 pub struct Player {
-    pub traitor_cards: Vec<Entity>,
-    pub treachery_cards: Vec<Entity>,
+    pub traitor_cards: Vec<TraitorCard>,
+    pub treachery_cards: Vec<TreacheryCard>,
 }
 
 impl Player {
@@ -76,7 +75,7 @@ impl Player {
 }
 
 #[derive(Component)]
-pub struct Deck(pub Vec<Entity>);
+pub struct Deck;
 
 #[derive(Component)]
 pub struct Card;
@@ -292,3 +291,15 @@ pub struct TraitorCard {
 pub struct StormCard {
     pub val: u8,
 }
+
+#[derive(Component)]
+pub struct TraitorDeck;
+
+#[derive(Component)]
+pub struct TreacheryDeck;
+
+#[derive(Component)]
+pub struct StormDeck;
+
+#[derive(Component)]
+pub struct SpiceDeck;
