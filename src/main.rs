@@ -1,44 +1,36 @@
-mod active;
+#![feature(hash_drain_filter)]
+
 mod components;
 mod data;
 mod game;
 mod input;
 mod lerper;
+mod menu;
+mod network;
 mod resources;
 mod stack;
 mod util;
 
-use std::{collections::HashMap, f32::consts::PI};
+use std::collections::HashMap;
 
 use bevy::{
     asset::LoadState,
     math::vec3,
     prelude::*,
-    render::{
-        camera::{PerspectiveProjection, Projection},
-        mesh::Indices,
-        render_resource::PrimitiveTopology,
-        view::RenderLayers,
-    },
+    render::{camera::PerspectiveProjection, mesh::Indices, render_resource::PrimitiveTopology},
     utils::default,
 };
 #[cfg(feature = "debug")]
-use bevy_inspector_egui::{RegisterInspectable, WorldInspectorPlugin};
+use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_mod_picking::{DefaultPickingPlugins, PickableBundle, PickingCameraBundle};
+use bevy_renet::RenetClientPlugin;
 use iyes_loopless::{
     prelude::{AppLooplessStateExt, IntoConditionalSystem},
     state::NextState,
 };
-use rand::seq::SliceRandom;
 
 use self::{
-    active::{Active, ActivePlugin},
-    components::*,
-    game::*,
-    input::GameInputPlugin,
-    lerper::LerpPlugin,
-    resources::*,
-    util::card_jitter,
+    components::*, game::*, input::GameInputPlugin, lerper::LerpPlugin, network::RenetNetworkingPlugin, resources::*,
 };
 
 pub const MAX_PLAYERS: u8 = 6;
@@ -46,12 +38,11 @@ pub const MAX_PLAYERS: u8 = 6;
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Screen {
     MainMenu,
+    Host,
+    Join,
     Loading,
     Game,
 }
-
-#[derive(Component)]
-struct GameEntity;
 
 #[derive(Default)]
 struct LoadingAssets {
@@ -65,100 +56,47 @@ fn main() {
     let mut app = App::new();
     app.insert_resource(Msaa { samples: 4 })
         .insert_resource(ClearColor(Color::BLACK))
-        .init_resource::<Data>()
-        .init_resource::<Info>()
         .init_resource::<LoadingAssets>();
 
-    app.add_loopless_state(Screen::Loading);
-
-    app.add_startup_system(init_cameras).add_system(active_cam_picker);
+    app.add_loopless_state(Screen::MainMenu);
 
     app.add_plugins(DefaultPlugins);
 
     #[cfg(feature = "debug")]
     app.add_plugin(WorldInspectorPlugin::new());
 
-    app.add_plugin(GameInputPlugin)
+    app.add_plugin(RenetClientPlugin)
+        .add_plugin(RenetNetworkingPlugin)
+        .add_plugin(GameInputPlugin)
         .add_plugin(GamePlugin)
         .add_plugin(LerpPlugin)
-        .add_plugins(DefaultPickingPlugins)
-        .add_plugin(ActivePlugin);
+        .add_plugins(DefaultPickingPlugins);
+
+    app.add_startup_system(init_camera);
 
     app.add_enter_system(Screen::Loading, init_loading_game);
     app.add_system(load_game.run_in_state(Screen::Loading));
     app.add_exit_system(Screen::Loading, tear_down);
-    app.add_enter_system(Screen::Game, init_game);
-
-    #[cfg(feature = "debug")]
-    app.register_inspectable::<Unique>();
+    app.add_enter_system(Screen::Game, init_scene);
 
     app.run();
 }
 
-fn init_cameras(mut commands: Commands, mut info: ResMut<Info>) {
-    let proj: Projection = PerspectiveProjection {
-        near: 0.01,
-        far: 100.0,
-        ..default()
-    }
-    .into();
-    let trans = Transform::from_translation(vec3(0.0, 2.5, 2.0)).looking_at(Vec3::ZERO, Vec3::Y)
-        * Transform::from_translation(vec3(0.0, -0.4, 0.0));
-    let primary_cam = commands
+fn init_camera(mut commands: Commands) {
+    commands
         .spawn_bundle(Camera3dBundle {
-            projection: proj.clone(),
-            transform: trans,
-            camera: Camera {
-                priority: 1,
-                is_active: true,
+            projection: PerspectiveProjection {
+                near: 0.01,
+                far: 100.0,
                 ..default()
-            },
+            }
+            .into(),
+            transform: Transform::from_translation(vec3(0.0, 2.5, 2.0)).looking_at(Vec3::ZERO, Vec3::Y)
+                * Transform::from_translation(vec3(0.0, -0.4, 0.0)),
             ..default()
         })
         .insert(UiCameraConfig::default())
-        .insert(RenderLayers::default().with(1))
-        .insert(Player::new())
-        .insert_bundle(PickingCameraBundle::default())
-        .id();
-    info.turn_order.push(primary_cam);
-    for index in 2..MAX_PLAYERS + 1 {
-        info.turn_order.push(
-            commands
-                .spawn_bundle(Camera3dBundle {
-                    projection: proj.clone(),
-                    transform: trans,
-                    camera: Camera {
-                        priority: index as _,
-                        is_active: false,
-                        ..default()
-                    },
-                    ..default()
-                })
-                .insert(UiCameraConfig::default())
-                .insert(RenderLayers::default().with(index))
-                .insert(Player::new())
-                .id(),
-        );
-    }
-    let mut rng = rand::thread_rng();
-    info.turn_order.shuffle(&mut rng);
-    commands.insert_resource(Active {
-        entity: info.turn_order[0],
-    });
-}
-
-fn active_cam_picker(mut commands: Commands, active: Res<Active>, mut cams: Query<(Entity, &mut Camera)>) {
-    if active.is_changed() {
-        for (entity, mut camera) in cams.iter_mut() {
-            if active.entity == entity {
-                camera.is_active = true;
-                commands.entity(entity).insert_bundle(PickingCameraBundle::default());
-            } else {
-                camera.is_active = false;
-                commands.entity(entity).remove_bundle::<PickingCameraBundle>();
-            }
-        }
-    }
+        .insert_bundle(PickingCameraBundle::default());
 }
 
 #[derive(Component)]
@@ -182,7 +120,6 @@ fn init_loading_game(
             },
             ..default()
         })
-        .insert(GameEntity)
         .with_children(|parent| {
             parent
                 .spawn_bundle(NodeBundle {
@@ -235,7 +172,7 @@ fn load_game(
     }
 }
 
-fn init_game(
+fn init_scene(
     mut commands: Commands,
     data: Res<Data>,
     asset_server: Res<AssetServer>,
@@ -243,19 +180,17 @@ fn init_game(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // Light
-    commands
-        .spawn_bundle(PointLightBundle {
-            transform: Transform::from_translation(vec3(10.0, 10.0, 10.0)),
-            ..default()
-        })
-        .insert(GameEntity);
+    commands.spawn_bundle(PointLightBundle {
+        transform: Transform::from_translation(vec3(10.0, 10.0, 10.0)),
+        ..default()
+    });
 
     commands.insert_resource(AmbientLight {
         color: Color::WHITE,
         brightness: 0.2,
     });
 
-    commands.spawn_bundle((Storm::default(),)).insert(GameEntity);
+    commands.spawn_bundle((Storm::default(),));
 
     // Board
     commands
@@ -264,7 +199,6 @@ fn init_game(
             ..default()
         })
         .insert_bundle(PickableBundle::default())
-        .insert(GameEntity)
         .insert(data.camera_nodes.board);
 
     commands
@@ -289,7 +223,6 @@ fn init_game(
             ),
             ..default()
         })
-        .insert(GameEntity)
         .insert(PhaseText);
 
     commands
@@ -314,14 +247,12 @@ fn init_game(
             ),
             ..default()
         })
-        .insert(GameEntity)
         .insert(ActivePlayerText);
 
     for (location, location_data) in data.locations.iter() {
         commands
             .spawn_bundle(SpatialBundle::default())
-            .insert(location.clone())
-            .insert(GameEntity)
+            .insert(*location)
             .with_children(|parent| {
                 for (&sector, nodes) in location_data.sectors.iter() {
                     let mut mesh = Mesh::new(PrimitiveTopology::TriangleList);
@@ -341,7 +272,7 @@ fn init_game(
                             ..default()
                         })
                         .insert(LocationSector {
-                            location: location.clone(),
+                            location: *location,
                             sector,
                         });
                 }
@@ -351,164 +282,9 @@ fn init_game(
             commands.spawn().insert(SpiceNode::new(pos));
         }
     }
-
-    let card_face = asset_server.get_handle("card.gltf#Mesh0/Primitive0");
-    let card_back = asset_server.get_handle("card.gltf#Mesh0/Primitive1");
-
-    let treachery_back_texture = asset_server.get_handle("treachery/treachery_back.png");
-    let treachery_back_material = materials.add(StandardMaterial::from(treachery_back_texture));
-
-    commands
-        .spawn_bundle((Deck, TreacheryDeck))
-        .insert_bundle(SpatialBundle::from_transform(
-            Transform::from_translation(vec3(1.23, 0.0049, -0.87))
-                * Transform::from_rotation(Quat::from_rotation_z(PI)),
-        ))
-        .with_children(|parent| {
-            for (i, card_data) in data.treachery_deck.iter().enumerate() {
-                let treachery_front_texture =
-                    asset_server.get_handle(format!("treachery/treachery_{}.png", card_data.texture.as_str()).as_str());
-                let treachery_front_material = materials.add(StandardMaterial::from(treachery_front_texture));
-
-                parent
-                    .spawn_bundle((Card, card_data.card.clone(), GameEntity))
-                    .insert_bundle(SpatialBundle::from_transform(
-                        Transform::from_translation(Vec3::Y * 0.001 * (i as f32)) * card_jitter(),
-                    ))
-                    .with_children(|parent| {
-                        parent.spawn_bundle(PbrBundle {
-                            mesh: card_face.clone(),
-                            material: treachery_front_material,
-                            ..default()
-                        });
-                        parent.spawn_bundle(PbrBundle {
-                            mesh: card_back.clone(),
-                            material: treachery_back_material.clone(),
-                            ..default()
-                        });
-                    });
-            }
-        });
-
-    let spice_back_texture = asset_server.get_handle("spice/spice_back.png");
-    let spice_back_material = materials.add(StandardMaterial::from(spice_back_texture));
-
-    commands
-        .spawn_bundle((Deck, SpiceDeck))
-        .insert_bundle(SpatialBundle {
-            transform: Transform::from_translation(vec3(1.23, 0.0049, 0.3))
-                * Transform::from_rotation(Quat::from_rotation_z(PI)),
-            ..default()
-        })
-        .with_children(|parent| {
-            for (i, (card, card_data)) in data.spice_cards.iter().enumerate() {
-                let spice_front_texture =
-                    asset_server.get_handle(format!("spice/spice_{}.png", card_data.texture.as_str()).as_str());
-                let spice_front_material = materials.add(StandardMaterial::from(spice_front_texture));
-
-                parent
-                    .spawn_bundle((Card, card.clone()))
-                    .insert_bundle(SpatialBundle::from_transform(
-                        Transform::from_translation(Vec3::Y * 0.001 * (i as f32)) * card_jitter(),
-                    ))
-                    .insert(GameEntity)
-                    .with_children(|parent| {
-                        parent.spawn_bundle(PbrBundle {
-                            mesh: card_face.clone(),
-                            material: spice_front_material,
-                            ..default()
-                        });
-                        parent.spawn_bundle(PbrBundle {
-                            mesh: card_back.clone(),
-                            material: spice_back_material.clone(),
-                            ..default()
-                        });
-                    });
-            }
-        });
-
-    let storm_back_texture = asset_server.get_handle("storm/storm_back.png");
-    let storm_back_material = materials.add(StandardMaterial::from(storm_back_texture));
-
-    commands
-        .spawn_bundle((Deck, StormDeck))
-        .insert_bundle(SpatialBundle::from_transform(
-            Transform::from_translation(vec3(1.23, 0.0049, 0.87)) * Transform::from_rotation(Quat::from_rotation_z(PI)),
-        ))
-        .with_children(|parent| {
-            for val in 1..=6 {
-                let storm_front_texture = asset_server.get_handle(format!("storm/storm_{}.png", val).as_str());
-                let storm_front_material = materials.add(StandardMaterial::from(storm_front_texture));
-
-                parent
-                    .spawn_bundle((Card, StormCard { val }))
-                    .insert_bundle(SpatialBundle::from_transform(
-                        Transform::from_translation(Vec3::Y * 0.001 * (val as f32)) * card_jitter(),
-                    ))
-                    .insert(GameEntity)
-                    .with_children(|parent| {
-                        parent.spawn_bundle(PbrBundle {
-                            mesh: card_face.clone(),
-                            material: storm_front_material,
-                            ..default()
-                        });
-                        parent.spawn_bundle(PbrBundle {
-                            mesh: card_back.clone(),
-                            material: storm_back_material.clone(),
-                            ..default()
-                        });
-                    });
-            }
-        });
-
-    let deck_mesh = meshes.add(Mesh::from(shape::Box::new(0.25, 0.06, 0.36)));
-
-    commands
-        .spawn_bundle(PbrBundle {
-            mesh: deck_mesh.clone(),
-            transform: Transform::from_translation(data.camera_nodes.treachery.at),
-            material: materials.add(StandardMaterial::from(Color::rgba(1.0, 1.0, 1.0, 0.0))),
-            ..default()
-        })
-        .insert_bundle(PickableBundle::default())
-        .insert(GameEntity)
-        .insert(data.camera_nodes.treachery);
-
-    commands
-        .spawn_bundle(PbrBundle {
-            mesh: deck_mesh.clone(),
-            transform: Transform::from_translation(data.camera_nodes.traitor.at),
-            material: materials.add(StandardMaterial::from(Color::rgba(1.0, 1.0, 1.0, 0.0))),
-            ..default()
-        })
-        .insert_bundle(PickableBundle::default())
-        .insert(GameEntity)
-        .insert(data.camera_nodes.traitor);
-
-    commands
-        .spawn_bundle(PbrBundle {
-            mesh: deck_mesh.clone(),
-            transform: Transform::from_translation(data.camera_nodes.spice.at),
-            material: materials.add(StandardMaterial::from(Color::rgba(1.0, 1.0, 1.0, 0.0))),
-            ..default()
-        })
-        .insert_bundle(PickableBundle::default())
-        .insert(GameEntity)
-        .insert(data.camera_nodes.spice);
-
-    commands
-        .spawn_bundle(PbrBundle {
-            mesh: deck_mesh,
-            transform: Transform::from_translation(data.camera_nodes.storm.at),
-            material: materials.add(StandardMaterial::from(Color::rgba(1.0, 1.0, 1.0, 0.0))),
-            ..default()
-        })
-        .insert_bundle(PickableBundle::default())
-        .insert(GameEntity)
-        .insert(data.camera_nodes.storm);
 }
 
-fn tear_down(mut commands: Commands, screen_entities: Query<Entity, With<GameEntity>>) {
+fn tear_down(mut commands: Commands, screen_entities: Query<Entity, Without<Camera>>) {
     for entity in screen_entities.iter() {
         commands.entity(entity).despawn_recursive();
     }

@@ -8,23 +8,23 @@ pub struct GameInputPlugin;
 
 impl Plugin for GameInputPlugin {
     fn build(&self, app: &mut App) {
-        app.add_system(picker_system.run_in_state(Screen::Game));
-        app.add_system(camera_reset_system.run_in_state(Screen::Game));
+        app.add_system(lookaround.run_in_state(Screen::Game));
+        app.add_system(camera_reset.run_in_state(Screen::Game));
 
         #[cfg(feature = "debug")]
-        app.add_system(debug_restart_system.run_in_state(Screen::Game));
+        app.add_system(debug_restart.run_in_state(Screen::Game));
     }
 }
 
-fn debug_restart_system(keyboard_input: Res<Input<KeyCode>>) {
+fn debug_restart(keyboard_input: Res<Input<KeyCode>>) {
     if keyboard_input.just_pressed(KeyCode::F1) {
-        // TODO: Go back to main menu state
+        // TODO: Disconnect from server
     }
 }
 
-fn picker_system(
+fn lookaround(
     mut commands: Commands,
-    camera: Query<Entity, (With<Camera>, Without<Lerp>)>,
+    camera: Query<Entity, With<Camera>>,
     nodes: Query<&CameraNode>,
     parents: Query<&Parent>,
     mut events: EventReader<PickingEvent>,
@@ -56,7 +56,7 @@ fn picker_system(
     }
 }
 
-fn camera_reset_system(
+fn camera_reset(
     mut commands: Commands,
     data: Res<Data>,
     keyboard_input: Res<Input<KeyCode>>,

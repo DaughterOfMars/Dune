@@ -5,14 +5,16 @@
             units: 10,
             possible_locations: Some([Arrakeen]),
             spice: 10,
-        )
+        ),
+        special_forces: 0,
     ),
     BeneGesserit: (
         name: "Bene Gesserit",
         starting_values: (
             units: 1,
             spice: 5,
-        )
+        ),
+        special_forces: 0,
     ),
     Fremen: (
         name: "Fremen",
@@ -20,14 +22,16 @@
             units: 10,
             possible_locations: Some([SietchTabr, FalseWallSouth, FalseWallEast]),
             spice: 10,
-        )
+        ),
+        special_forces: 3,
     ),
     Emperor: (
         name: "Emperor",
         starting_values: (
             units: 0,
             spice: 10,
-        )
+        ),
+        special_forces: 5,
     ),
     SpacingGuild: (
         name: "Spacing Guild",
@@ -35,7 +39,8 @@
             units: 5,
             possible_locations: Some([TueksSietch]),
             spice: 5,
-        )
+        ),
+        special_forces: 0,
     ),
     Harkonnen: (
         name: "Harkonnen",
@@ -43,6 +48,7 @@
             units: 10,
             possible_locations: Some([Carthag]),
             spice: 10,
-        )
+        ),
+        special_forces: 0,
     ),
 }

@@ -1,31 +1,30 @@
+mod object;
 mod phases;
+pub mod state;
 mod systems;
 
-use std::{collections::HashMap, hash::Hash};
+use std::hash::Hash;
 
-use bevy::{
-    prelude::*,
-    render::camera::{Camera, OrthographicProjection},
-};
+use bevy::prelude::*;
 use bevy_mod_picking::PickingEvent;
-use iyes_loopless::prelude::{AppLooplessStateExt, IntoConditionalSystem};
+use iyes_loopless::prelude::{AppLooplessStateExt, ConditionSet};
 use rand::prelude::SliceRandom;
+use serde::{Deserialize, Serialize};
 
-use self::{
+pub use self::{
+    object::*,
     phases::{
         setup::{SetupPhase, SetupPlugin},
         storm::StormPhase,
     },
+};
+use self::{
+    state::{GameEvent, GameState},
     systems::*,
 };
 use crate::{
-    active::Active,
-    components::{
-        Deck, Disorganized, FactionPredictionCard, LocationSector, Player, TraitorCard, Troop, TurnPredictionCard,
-        Unique,
-    },
+    components::{Deck, FactionPredictionCard, LocationSector, TraitorCard, TurnPredictionCard},
     lerper::Lerp,
-    resources::{Data, Info},
     util::card_jitter,
     Screen,
 };
@@ -34,27 +33,33 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.add_loopless_state(Phase::Setup(SetupPhase::ChooseFactions));
+        app.init_resource::<GameState>()
+            .add_event::<GameEvent>()
+            .init_resource::<ObjectEntityMap>();
 
         app.add_plugin(SetupPlugin);
 
         app.add_event::<PickedEvent<FactionPredictionCard>>()
             .add_event::<PickedEvent<TurnPredictionCard>>()
             .add_event::<PickedEvent<TraitorCard>>()
-            .add_event::<PickedEvent<LocationSector>>()
-            .add_system(card_picker::<FactionPredictionCard>.run_in_state(Screen::Game))
-            .add_system(card_picker::<TurnPredictionCard>.run_in_state(Screen::Game))
-            .add_system(card_picker::<TraitorCard>.run_in_state(Screen::Game))
-            .add_system(card_picker::<LocationSector>.run_in_state(Screen::Game));
+            .add_event::<PickedEvent<LocationSector>>();
 
-        app.add_system(phase_text_system.run_in_state(Screen::Game));
-        app.add_system(active_player_text_system.run_in_state(Screen::Game));
-        app.add_system(public_troop_system.run_in_state(Screen::Game));
-        app.add_system(trigger_stack_troops.run_in_state(Screen::Game));
-        app.add_system(shuffle_system.run_in_state(Screen::Game));
-        app.add_system(render_unique.run_in_state(Screen::Game));
+        app.add_system_set(
+            ConditionSet::new()
+                .run_in_state(Screen::Game)
+                .with_system(spawn_object)
+                .with_system(hiararchy_picker::<FactionPredictionCard>)
+                .with_system(hiararchy_picker::<TurnPredictionCard>)
+                .with_system(hiararchy_picker::<TraitorCard>)
+                .with_system(hiararchy_picker::<LocationSector>)
+                .with_system(phase_text)
+                .with_system(active_player_text)
+                .with_system(shuffle)
+                .with_system(shuffle_traitors)
+                .into(),
+        );
 
-        app.add_exit_system(Screen::Game, reset_system);
+        app.add_exit_system(Screen::Game, reset);
     }
 }
 
@@ -64,7 +69,7 @@ pub struct PhaseText;
 #[derive(Component)]
 pub struct ActivePlayerText;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Phase {
     Setup(SetupPhase),
     Storm(StormPhase),
@@ -85,7 +90,10 @@ impl Phase {
             Phase::Setup(subphase) => match subphase {
                 SetupPhase::ChooseFactions => Phase::Setup(SetupPhase::Prediction),
                 SetupPhase::Prediction => Phase::Setup(SetupPhase::AtStart),
-                SetupPhase::AtStart => Phase::Storm(StormPhase::Reveal),
+                SetupPhase::AtStart => Phase::Setup(SetupPhase::DealTraitors),
+                SetupPhase::DealTraitors => Phase::Setup(SetupPhase::PlaceForces),
+                SetupPhase::PlaceForces => Phase::Setup(SetupPhase::DealTreachery),
+                SetupPhase::DealTreachery => Phase::Storm(StormPhase::Reveal),
             },
             Phase::Storm(subphase) => match subphase {
                 StormPhase::Reveal => Phase::Storm(StormPhase::WeatherControl),
@@ -106,14 +114,20 @@ impl Phase {
     }
 }
 
-fn reset_system() {
+impl Default for Phase {
+    fn default() -> Self {
+        Self::Setup(SetupPhase::ChooseFactions)
+    }
+}
+
+fn reset() {
     todo!()
 }
 
 #[derive(Component)]
 pub struct Shuffling(pub usize);
 
-pub fn shuffle_system(
+pub fn shuffle(
     mut commands: Commands,
     mut decks: Query<(Entity, &Children, &mut Shuffling), With<Deck>>,
     lerps: Query<&Lerp>,
@@ -137,27 +151,24 @@ pub fn shuffle_system(
 }
 
 pub struct PickedEvent<T> {
-    picker: Entity,
-    picked: Entity,
-    inner: T,
+    pub picked: Entity,
+    pub inner: T,
 }
 
-// Converts PickingEvents to FactionPickedEvents
-fn card_picker<T: Component + Clone>(
-    active: Res<Active>,
-    cards: Query<&T, Without<Lerp>>,
+// Converts PickingEvents to typed PickedEvents by looking up the hierarchy if needed
+fn hiararchy_picker<T: Component + Clone>(
+    pickables: Query<&T>,
     parents: Query<&Parent>,
     mut picking_events: EventReader<PickingEvent>,
     mut picked_events: EventWriter<PickedEvent<T>>,
 ) {
-    if !cards.is_empty() {
+    if !pickables.is_empty() {
         for event in picking_events.iter() {
             if let PickingEvent::Clicked(clicked) = event {
                 let mut clicked = *clicked;
                 loop {
-                    if let Ok(card) = cards.get(clicked) {
+                    if let Ok(card) = pickables.get(clicked) {
                         picked_events.send(PickedEvent {
-                            picker: active.entity,
                             picked: clicked,
                             inner: card.clone(),
                         });

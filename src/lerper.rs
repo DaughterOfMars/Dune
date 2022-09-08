@@ -13,7 +13,6 @@ enum LerpType {
     UI {
         src: Option<UITransform>,
         dest: UITransform,
-        cam: Entity,
     },
     World {
         src: Option<Transform>,
@@ -22,12 +21,10 @@ enum LerpType {
     UIToWorld {
         src: Option<UITransform>,
         dest: Transform,
-        cam: Entity,
     },
     WorldToUI {
         src: Option<Transform>,
         dest: UITransform,
-        cam: Entity,
     },
     Camera {
         dest: CameraNode,
@@ -35,19 +32,17 @@ enum LerpType {
 }
 
 impl LerpType {
-    pub fn ui_to(dest: impl Into<UITransform>, cam: Entity) -> Self {
+    pub fn ui_to(dest: impl Into<UITransform>) -> Self {
         LerpType::UI {
             src: None,
             dest: dest.into(),
-            cam,
         }
     }
 
-    pub fn ui_from_to(src: impl Into<UITransform>, dest: impl Into<UITransform>, cam: Entity) -> Self {
+    pub fn ui_from_to(src: impl Into<UITransform>, dest: impl Into<UITransform>) -> Self {
         LerpType::UI {
             src: Some(src.into()),
             dest: dest.into(),
-            cam,
         }
     }
 
@@ -65,24 +60,22 @@ impl LerpType {
         }
     }
 
-    pub fn world_to_ui(dest: impl Into<UITransform>, cam: Entity) -> Self {
+    pub fn world_to_ui(dest: impl Into<UITransform>) -> Self {
         LerpType::WorldToUI {
             src: None,
             dest: dest.into(),
-            cam,
         }
     }
 
-    pub fn card_to_ui(dest: impl Into<UITransform>, cam: Entity) -> Self {
+    pub fn card_to_ui(dest: impl Into<UITransform>) -> Self {
         LerpType::WorldToUI {
             src: None,
             dest: dest.into().with_rotation(Quat::from_rotation_x(0.5 * PI)),
-            cam,
         }
     }
 
-    pub fn ui_to_world(dest: Transform, cam: Entity) -> Self {
-        LerpType::UIToWorld { src: None, dest, cam }
+    pub fn ui_to_world(dest: Transform) -> Self {
+        LerpType::UIToWorld { src: None, dest }
     }
 }
 
@@ -150,18 +143,12 @@ impl Lerp {
         }
     }
 
-    pub fn ui_to(dest: impl Into<UITransform>, cam: Entity, time: f32, delay: f32) -> Self {
-        Lerp::new(LerpType::ui_to(dest, cam), time, delay)
+    pub fn ui_to(dest: impl Into<UITransform>, time: f32, delay: f32) -> Self {
+        Lerp::new(LerpType::ui_to(dest), time, delay)
     }
 
-    pub fn ui_from_to(
-        src: impl Into<UITransform>,
-        dest: impl Into<UITransform>,
-        cam: Entity,
-        time: f32,
-        delay: f32,
-    ) -> Self {
-        Lerp::new(LerpType::ui_from_to(src, dest, cam), time, delay)
+    pub fn ui_from_to(src: impl Into<UITransform>, dest: impl Into<UITransform>, time: f32, delay: f32) -> Self {
+        Lerp::new(LerpType::ui_from_to(src, dest), time, delay)
     }
 
     pub fn world_to(dest: impl Into<Transform>, time: f32, delay: f32) -> Self {
@@ -172,16 +159,16 @@ impl Lerp {
         Lerp::new(LerpType::world_from_to(src, dest), time, delay)
     }
 
-    pub fn world_to_ui(dest: impl Into<UITransform>, cam: Entity, time: f32, delay: f32) -> Self {
-        Lerp::new(LerpType::world_to_ui(dest, cam), time, delay)
+    pub fn world_to_ui(dest: impl Into<UITransform>, time: f32, delay: f32) -> Self {
+        Lerp::new(LerpType::world_to_ui(dest), time, delay)
     }
 
-    pub fn card_to_ui(dest: impl Into<UITransform>, cam: Entity, time: f32, delay: f32) -> Self {
-        Lerp::new(LerpType::card_to_ui(dest, cam), time, delay)
+    pub fn card_to_ui(dest: impl Into<UITransform>, time: f32, delay: f32) -> Self {
+        Lerp::new(LerpType::card_to_ui(dest), time, delay)
     }
 
-    pub fn ui_to_world(dest: Transform, cam: Entity, time: f32, delay: f32) -> Self {
-        Lerp::new(LerpType::ui_to_world(dest, cam), time, delay)
+    pub fn ui_to_world(dest: Transform, time: f32, delay: f32) -> Self {
+        Lerp::new(LerpType::ui_to_world(dest), time, delay)
     }
 
     pub fn with_interpolation(mut self, interp_fn: impl InterpolationFn + Send + Sync + 'static) -> Self {
@@ -271,11 +258,6 @@ impl From<(Vec2, Quat, f32)> for UITransform {
     }
 }
 
-#[derive(Component)]
-pub struct UIElement {
-    pub cam: Entity,
-}
-
 pub struct LerpCompletedEvent {
     pub entity: Entity,
 }
@@ -285,10 +267,10 @@ pub struct LerpPlugin;
 impl Plugin for LerpPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<LerpCompletedEvent>()
-            .add_system(init_lerp_system)
-            .add_system(lerp_ui_system)
-            .add_system(lerp_world_system)
-            .add_system(ui_element_system)
+            .add_system(init_lerp)
+            .add_system(lerp_ui)
+            .add_system(lerp_world)
+            .add_system(ui_element)
             .register_inspectable::<UITransform>();
     }
 }
@@ -305,29 +287,22 @@ pub struct LerpWorld {
     dest: Transform,
 }
 
-fn init_lerp_system(
+fn init_lerp(
     mut commands: Commands,
-    cameras: Query<(&GlobalTransform, &Camera)>,
+    camera: Query<(&GlobalTransform, &Camera)>,
     mut lerps: Query<(Entity, &Lerp, &Transform), Added<Lerp>>,
 ) {
     for (entity, lerp, transform) in lerps.iter_mut() {
         match lerp.lerp_type {
-            LerpType::UI { src, dest, cam } => {
+            LerpType::UI { src, dest } => {
                 let src = src.unwrap_or_else(|| {
-                    if let Ok((cam_transform, camera)) = cameras.get(cam) {
-                        camera
-                            .world_to_viewport(cam_transform, transform.translation)
-                            .map(Into::into)
-                            .unwrap_or_default()
-                    } else {
-                        Default::default()
-                    }
+                    let (cam_transform, camera) = camera.single();
+                    camera
+                        .world_to_viewport(cam_transform, transform.translation)
+                        .map(Into::into)
+                        .unwrap_or_default()
                 });
-                commands
-                    .entity(entity)
-                    .insert(LerpUI { src, dest })
-                    .insert(src)
-                    .insert(UIElement { cam });
+                commands.entity(entity).insert(LerpUI { src, dest }).insert(src);
             }
             LerpType::World { src, dest } => {
                 commands
@@ -336,50 +311,36 @@ fn init_lerp_system(
                         src: src.unwrap_or(*transform),
                         dest,
                     })
-                    .remove::<UITransform>()
-                    .remove::<UIElement>();
+                    .remove::<UITransform>();
             }
-            LerpType::UIToWorld { src, dest, cam } => {
+            LerpType::UIToWorld { src, dest } => {
                 commands
                     .entity(entity)
                     .insert(LerpWorld {
                         src: src
-                            .and_then(|src| {
-                                if let Ok((cam_transform, camera)) = cameras.get(cam) {
-                                    let cam_transform = cam_transform.compute_transform();
-                                    Some(
-                                        Transform::from_translation(screen_to_world(
-                                            src.translation,
-                                            cam_transform,
-                                            camera.projection_matrix(),
-                                        )) * Transform::from_rotation(cam_transform.rotation * src.rotation)
-                                            * Transform::from_scale(Vec3::splat(UI_SCALE * src.scale)),
-                                    )
-                                } else {
-                                    None
-                                }
+                            .map(|src| {
+                                let (cam_transform, camera) = camera.single();
+                                let cam_transform = cam_transform.compute_transform();
+                                Transform::from_translation(screen_to_world(
+                                    src.translation,
+                                    cam_transform,
+                                    camera.projection_matrix(),
+                                )) * Transform::from_rotation(cam_transform.rotation * src.rotation)
+                                    * Transform::from_scale(Vec3::splat(UI_SCALE * src.scale))
                             })
                             .unwrap_or(*transform),
                         dest,
                     })
-                    .remove::<UITransform>()
-                    .remove::<UIElement>();
+                    .remove::<UITransform>();
             }
-            LerpType::WorldToUI { src, dest, cam } => {
+            LerpType::WorldToUI { src, dest } => {
                 let src = src
                     .and_then(|src| {
-                        if let Ok((cam_transform, camera)) = cameras.get(cam) {
-                            camera.world_to_viewport(cam_transform, src.translation).map(Into::into)
-                        } else {
-                            None
-                        }
+                        let (cam_transform, camera) = camera.single();
+                        camera.world_to_viewport(cam_transform, src.translation).map(Into::into)
                     })
                     .unwrap_or_default();
-                commands
-                    .entity(entity)
-                    .insert(LerpUI { src, dest })
-                    .insert(src)
-                    .insert(UIElement { cam });
+                commands.entity(entity).insert(LerpUI { src, dest }).insert(src);
             }
             LerpType::Camera { dest } => {
                 commands
@@ -388,14 +349,13 @@ fn init_lerp_system(
                         src: *transform,
                         dest: Transform::from_translation(dest.pos).looking_at(dest.at, dest.up),
                     })
-                    .remove::<UITransform>()
-                    .remove::<UIElement>();
+                    .remove::<UITransform>();
             }
         }
     }
 }
 
-fn lerp_ui_system(
+fn lerp_ui(
     mut commands: Commands,
     mut event_writer: EventWriter<LerpCompletedEvent>,
     time: Res<Time>,
@@ -422,7 +382,7 @@ fn lerp_ui_system(
     }
 }
 
-fn lerp_world_system(
+fn lerp_world(
     mut commands: Commands,
     mut event_writer: EventWriter<LerpCompletedEvent>,
     time: Res<Time>,
@@ -453,19 +413,18 @@ fn lerp_world_system(
     }
 }
 
-fn ui_element_system(
-    mut ui_elements: Query<(&mut Transform, &UITransform, &UIElement), Without<Camera>>,
-    cameras: Query<(&GlobalTransform, &Camera)>,
+fn ui_element(
+    mut ui_elements: Query<(&mut Transform, &UITransform), Without<Camera>>,
+    camera: Query<(&GlobalTransform, &Camera)>,
 ) {
-    for (mut transform, ui_transform, ui_element) in ui_elements.iter_mut() {
-        if let Ok((cam_transform, camera)) = cameras.get(ui_element.cam) {
-            let cam_transform = cam_transform.compute_transform();
-            *transform = Transform::from_translation(screen_to_world(
-                ui_transform.translation,
-                cam_transform,
-                camera.projection_matrix(),
-            )) * Transform::from_rotation(cam_transform.rotation * ui_transform.rotation)
-                * Transform::from_scale(Vec3::splat(UI_SCALE * ui_transform.scale))
-        }
+    for (mut transform, ui_transform) in ui_elements.iter_mut() {
+        let (cam_transform, camera) = camera.single();
+        let cam_transform = cam_transform.compute_transform();
+        *transform = Transform::from_translation(screen_to_world(
+            ui_transform.translation,
+            cam_transform,
+            camera.projection_matrix(),
+        )) * Transform::from_rotation(cam_transform.rotation * ui_transform.rotation)
+            * Transform::from_scale(Vec3::splat(UI_SCALE * ui_transform.scale))
     }
 }

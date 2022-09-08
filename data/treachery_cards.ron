@@ -2,97 +2,121 @@
     Lasgun: (
         effect: Lasgun,
         name: "Lasgun",
+        textures: ["lasgun"]
     ),
     Chrysknife: (
         effect: ProjectileWeapon,
         name: "Chrysknife",
+        textures: ["chrysknife"]
     ),
     MaulaPistol: (
         effect: ProjectileWeapon,
         name: "Maula Pistol",
+        textures: ["maulapistol"]
     ),
     SlipTip: (
         effect: ProjectileWeapon,
         name: "Slip Tip",
+        textures: ["sliptip"]
     ),
     Stunner: (
         effect: ProjectileWeapon,
         name: "Stunner",
+        textures: ["stunner"]
     ),
     Chaumas: (
         effect: PoisonWeapon,
         name: "Chaumas",
+        textures: ["chaumas"]
     ),
     Chaumurky: (
         effect: PoisonWeapon,
         name: "Chaumurky",
+        textures: ["chaumurky"]
     ),
     EllacaDrug: (
         effect: PoisonWeapon,
         name: "Ellaca Drug",
+        textures: ["ellacadrug"]
     ),
     GomJabbar: (
         effect: PoisonWeapon,
         name: "Gom Jabbar",
+        textures: ["gomjabbar"]
     ),
     Shield: (
         effect: ProjectileDefense,
         name: "Shield",
+        textures: ["shield1","shield2","shield3","shield4"]
     ),
     Snooper: (
         effect: PoisonDefense,
         name: "Snooper",
+        textures: ["snooper1","snooper2","snooper3","snooper4"]
     ),
     CheapHero: (
         effect: CheapHero,
         name: "Cheap Hero",
+        textures: ["cheaphero1","cheaphero2"]
     ),
     CheapHeroine: (
         effect: CheapHero,
         name: "Cheap Heroine",
+        textures: ["cheapheroine"]
     ),
     TleilaxuGhola: (
         effect: Revive,
         name: "Tleilaxu Ghola",
+        textures: ["tleilaxughola"]
     ),
     FamilyAtomics: (
         effect: Atomics,
         name: "Family Atomics",
+        textures: ["familyatomics"]
     ),
     Hajr: (
         effect: Movement,
         name: "Hajr",
+        textures: ["hajr"]
     ),
     Karama: (
         effect: Karama,
         name: "Karama",
+        textures: ["karama1","karama2"]
     ),
     Truthtrance: (
         effect: Truthtrance,
         name: "Truthtrance",
+        textures: ["truthtrance1","truthtrance2"]
     ),
     WeatherControl: (
         effect: WeatherControl,
         name: "Weather Control",
+        textures: ["weathercontrol"]
     ),
     Baliset: (
         effect: Worthless,
         name: "Baliset",
+        textures: ["baliset"]
     ),
     JubbaCloak: (
         effect: Worthless,
         name: "Jubba Cloak",
+        textures: ["jubbacloak"]
     ),
     Kulon: (
         effect: Worthless,
         name: "Kulon",
+        textures: ["kulon"]
     ),
     LaLaLa: (
         effect: Worthless,
         name: "La La La",
+        textures: ["lalala"]
     ),
     TripToGamont: (
         effect: Worthless,
         name: "Trip to Gamont",
+        textures: ["gamont"]
     ),
 }

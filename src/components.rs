@@ -1,15 +1,15 @@
-use bevy::{ecs::entity::Entity, math::Vec3, prelude::Component};
-use bevy_inspector_egui::Inspectable;
+use bevy::{math::Vec3, prelude::Component};
 use serde::{Deserialize, Serialize};
+use strum::EnumIter;
 
 #[derive(Copy, Clone, Component)]
 pub struct Spice {
     pub value: i32,
 }
 
-#[derive(Copy, Clone, Component)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Component)]
 pub struct Troop {
-    pub value: i32,
+    pub is_special: bool,
 }
 
 #[derive(Default, Component)]
@@ -17,10 +17,10 @@ pub struct Storm {
     pub sector: i32,
 }
 
-#[derive(Copy, Clone, Debug, Component)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Component, Serialize, Deserialize)]
 pub struct LocationSector {
     pub location: Location,
-    pub sector: i32,
+    pub sector: u8,
 }
 
 #[derive(Component)]
@@ -40,40 +40,6 @@ impl SpiceNode {
         }
     }
 }
-
-#[derive(Copy, Clone, Debug, Component, Inspectable)]
-pub struct Unique {
-    pub entity: Entity,
-    pub public: bool,
-}
-
-impl Unique {
-    pub fn new(entity: Entity) -> Self {
-        Self { entity, public: false }
-    }
-}
-
-#[derive(Copy, Clone, Default, Debug, Component)]
-pub struct Prediction {
-    pub faction: Option<Faction>,
-    pub turn: Option<i32>,
-}
-
-#[derive(Component)]
-pub struct Player {
-    pub traitor_cards: Vec<TraitorCard>,
-    pub treachery_cards: Vec<TreacheryCard>,
-}
-
-impl Player {
-    pub fn new() -> Self {
-        Player {
-            traitor_cards: Vec::new(),
-            treachery_cards: Vec::new(),
-        }
-    }
-}
-
 #[derive(Component)]
 pub struct Deck;
 
@@ -93,7 +59,7 @@ pub struct TurnPredictionCard {
     pub turn: u8,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component, EnumIter)]
 pub enum Faction {
     Atreides,
     Harkonnen,
@@ -116,7 +82,7 @@ impl Faction {
     }
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component, EnumIter)]
 pub enum Leader {
     GurneyHalleck,
     ThufirHawat,
@@ -150,7 +116,7 @@ pub enum Leader {
     StabanTuek,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component, EnumIter)]
 pub enum Location {
     Arrakeen,
     Arsunt,

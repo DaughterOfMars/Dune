@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 pub struct StormPlugin;
 
@@ -8,7 +9,7 @@ impl Plugin for StormPlugin {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StormPhase {
     Reveal,
     WeatherControl,
