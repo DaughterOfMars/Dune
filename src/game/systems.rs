@@ -2,7 +2,6 @@ use std::f32::consts::PI;
 
 use bevy::{math::vec3, prelude::*};
 use bevy_mod_picking::PickableBundle;
-use rand::seq::SliceRandom;
 
 use super::{
     state::{DeckType, GameEvent, GameState, PlayerId, SpawnType},
@@ -86,7 +85,45 @@ pub fn spawn_object(
                         // TODO: represent other player objects
                     }
                 }
-                SpawnType::TraitorCard(_) => todo!(),
+                SpawnType::TraitorCard(Object {
+                    id: object_id,
+                    inner: card,
+                }) => {
+                    let card_face = asset_server.get_handle("card.gltf#Mesh0/Primitive0");
+                    let card_back = asset_server.get_handle("card.gltf#Mesh0/Primitive1");
+
+                    let traitor_front_texture = asset_server.get_handle(
+                        format!(
+                            "traitor/traitor_{}.png",
+                            game_state.data.leaders[&card.leader].texture.as_str()
+                        )
+                        .as_str(),
+                    );
+
+                    let traitor_back_texture = asset_server.get_handle("traitor/traitor_back.png");
+
+                    let entity = commands
+                        .spawn_bundle((*card, *object_id))
+                        .insert_bundle(SpatialBundle::from_transform(
+                            // TODO: stack them
+                            Transform::from_translation(vec3(1.23, 0.0049, -0.3))
+                                * Transform::from_rotation(Quat::from_rotation_z(PI)),
+                        ))
+                        .with_children(|parent| {
+                            parent.spawn_bundle(PbrBundle {
+                                mesh: card_face.clone(),
+                                material: materials.add(StandardMaterial::from(traitor_front_texture)),
+                                ..default()
+                            });
+                            parent.spawn_bundle(PbrBundle {
+                                mesh: card_back.clone(),
+                                material: materials.add(StandardMaterial::from(traitor_back_texture)),
+                                ..default()
+                            });
+                        })
+                        .id();
+                    object_entity.map.insert(*object_id, entity);
+                }
                 SpawnType::TreacheryCard(Object {
                     id: object_id,
                     inner: card,
@@ -98,10 +135,7 @@ pub fn spawn_object(
                         format!(
                             "treachery/treachery_{}.png",
                             // TODO: somehow use variants consistently
-                            game_state.data.treachery_cards[card]
-                                .textures
-                                .choose(&mut rand::thread_rng())
-                                .unwrap()
+                            game_state.data.treachery_cards[&card.kind].textures[card.variant]
                         )
                         .as_str(),
                     );
@@ -211,7 +245,7 @@ pub fn phase_text(game_state: Res<GameState>, mut text: Query<&mut Text, With<Ph
             Phase::Setup(subphase) => match subphase {
                 SetupPhase::ChooseFactions => "Choosing Factions...".to_string(),
                 SetupPhase::Prediction => "Bene Gesserit are making a prediction...".to_string(),
-                SetupPhase::AtStart => "Initial Placement...".to_string(),
+                SetupPhase::AtStart => "Start of Game Setup...".to_string(),
                 SetupPhase::DealTraitors => "Picking Traitor Cards...".to_string(),
                 SetupPhase::PlaceForces => "Placing Forces...".to_string(),
                 SetupPhase::DealTreachery => "Dealing Treachery Cards...".to_string(),
@@ -251,14 +285,7 @@ pub fn active_player_text(game_state: Res<GameState>, mut text: Query<&mut Text,
     }
 }
 
-pub fn shuffle_traitors(
-    mut commands: Commands,
-    game_state: Res<GameState>,
-    mut game_events: EventReader<GameEvent>,
-    asset_server: Res<AssetServer>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    traitor_deck: Query<Entity, With<TraitorDeck>>,
-) {
+pub fn shuffle_traitors(mut commands: Commands, game_state: Res<GameState>, mut game_events: EventReader<GameEvent>) {
     for event in game_events.iter() {
         if matches!(
             event,
@@ -266,58 +293,7 @@ pub fn shuffle_traitors(
                 deck_type: DeckType::Traitor
             }
         ) {
-            if let Ok(traitor_deck) = traitor_deck.get_single() {
-                commands.entity(traitor_deck).insert(Shuffling(5));
-            } else {
-                let card_face = asset_server.get_handle("card.gltf#Mesh0/Primitive0");
-                let card_back = asset_server.get_handle("card.gltf#Mesh0/Primitive1");
-
-                let traitor_back_texture = asset_server.get_handle("traitor/traitor_back.png");
-
-                commands
-                    .spawn_bundle((Deck, TraitorDeck, Shuffling(5)))
-                    .insert_bundle(SpatialBundle::from_transform(
-                        Transform::from_translation(vec3(1.23, 0.0049, -0.3))
-                            * Transform::from_rotation(Quat::from_rotation_z(PI)),
-                    ))
-                    .with_children(|parent| {
-                        for (i, (leader, leader_data)) in game_state
-                            .decks
-                            .traitor
-                            .cards
-                            .iter()
-                            .map(|traitor_card| {
-                                (
-                                    traitor_card.inner.leader,
-                                    &game_state.data.leaders[&traitor_card.inner.leader],
-                                )
-                            })
-                            .enumerate()
-                        {
-                            let traitor_front_texture = asset_server
-                                .get_handle(format!("traitor/traitor_{}.png", leader_data.texture.as_str()).as_str());
-                            let traitor_front_material = materials.add(StandardMaterial::from(traitor_front_texture));
-
-                            parent
-                                .spawn_bundle((Card, TraitorCard { leader: leader.clone() }))
-                                .insert_bundle(SpatialBundle::from_transform(
-                                    Transform::from_translation(Vec3::Y * 0.001 * (i as f32)) * card_jitter(),
-                                ))
-                                .with_children(|parent| {
-                                    parent.spawn_bundle(PbrBundle {
-                                        mesh: card_face.clone(),
-                                        material: traitor_front_material,
-                                        ..default()
-                                    });
-                                    parent.spawn_bundle(PbrBundle {
-                                        mesh: card_back.clone(),
-                                        material: materials.add(StandardMaterial::from(traitor_back_texture.clone())),
-                                        ..default()
-                                    });
-                                });
-                        }
-                    });
-            }
+            // TODO
         }
     }
 }

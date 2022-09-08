@@ -7,7 +7,6 @@ mod input;
 mod lerper;
 mod menu;
 mod network;
-mod resources;
 mod stack;
 mod util;
 

@@ -1,14 +1,16 @@
 use std::collections::HashSet;
 
+use bevy::ecs::system::Spawn;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
+use strum::IntoEnumIterator;
 
 use super::*;
 use crate::{
-    components::{Faction, Troop},
+    components::{Faction, Leader, TraitorCard, TreacheryCard, Troop},
     game::{
-        state::{Prompt, SpawnType},
-        ObjectIdGenerator, Phase, SetupPhase,
+        state::{DeckType, Prompt, SpawnType},
+        Object, ObjectIdGenerator, Phase, SetupPhase,
     },
 };
 
@@ -69,7 +71,39 @@ impl Server {
                             self.consume(AdvancePhase)?;
                         }
                     }
-                    _ => (),
+                    SetupPhase::AtStart => {
+                        for card in self.game_state.data.treachery_deck.clone() {
+                            let card = self.spawn(card);
+                            self.consume(SpawnObject {
+                                spawn_type: SpawnType::TreacheryCard(card),
+                            })?;
+                        }
+                        for leader in Leader::iter() {
+                            let faction = self.game_state.data.leaders[&leader].faction;
+                            if self.game_state.players.values().any(|p| p.faction == faction) {
+                                let card = self.spawn(TraitorCard { leader });
+                                self.consume(SpawnObject {
+                                    spawn_type: SpawnType::TraitorCard(card),
+                                })?;
+                            }
+                        }
+                        self.consume(ShuffleDeck {
+                            deck_type: DeckType::Traitor,
+                        })?;
+                        self.consume(ShuffleDeck {
+                            deck_type: DeckType::Treachery,
+                        })?;
+                        self.consume(AdvancePhase)?;
+                    }
+                    SetupPhase::DealTraitors => {
+                        // TODO
+                    }
+                    SetupPhase::PlaceForces => {
+                        // Clients should handle this part
+                    }
+                    SetupPhase::DealTreachery => {
+                        // TODO
+                    }
                 },
                 _ => (),
             },
@@ -82,7 +116,7 @@ impl Server {
                     .into_iter()
                     .filter_map(|(leader, data)| (data.faction == faction).then_some(leader))
                 {
-                    let leader = self.ids.spawn(leader);
+                    let leader = self.spawn(leader);
                     self.consume(SpawnObject {
                         spawn_type: SpawnType::Leader {
                             player_id: self.game_state.active_player.unwrap(),
@@ -97,7 +131,7 @@ impl Server {
                             .take(self.game_state.data.factions[&faction].special_forces as usize),
                     )
                 {
-                    let unit = self.ids.spawn(unit);
+                    let unit = self.spawn(unit);
                     self.consume(SpawnObject {
                         spawn_type: SpawnType::Troop {
                             player_id: self.game_state.active_player.unwrap(),
@@ -116,13 +150,7 @@ impl Server {
                 }
             }
             ChooseTraitor { .. } => {
-                if self.game_state.players.values().all(|p| {
-                    p.traitor_cards.len()
-                        == match p.faction {
-                            Faction::Harkonnen => 4,
-                            _ => 1,
-                        }
-                }) {
+                if self.game_state.players.values().all(|p| p.prompt.is_none()) {
                     self.consume(AdvancePhase)?;
                 }
             }
@@ -219,6 +247,10 @@ impl Server {
 
         self.renet_server.send_packets()?;
         Ok(())
+    }
+
+    fn spawn<T>(&mut self, t: T) -> Object<T> {
+        self.ids.spawn(t)
     }
 }
 

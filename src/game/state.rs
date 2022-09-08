@@ -9,9 +9,8 @@ use crate::{
     components::{
         Bonus, Faction, Leader, Location, LocationSector, SpiceCard, StormCard, TraitorCard, TreacheryCard, Troop,
     },
-    data::SpiceLocationData,
+    data::{Data, SpiceLocationData},
     game::{Phase, SetupPhase},
-    resources::Data,
 };
 
 #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Serialize, Deserialize, Hash, From, Display)]

@@ -195,8 +195,8 @@ pub enum CardEffect {
     WeatherControl,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
-pub enum TreacheryCard {
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash)]
+pub enum TreacheryCardKind {
     Lasgun,
     Chrysknife,
     MaulaPistol,
@@ -221,6 +221,12 @@ pub enum TreacheryCard {
     Kulon,
     LaLaLa,
     TripToGamont,
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
+pub struct TreacheryCard {
+    pub kind: TreacheryCardKind,
+    pub variant: usize,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
