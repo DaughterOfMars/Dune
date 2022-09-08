@@ -119,7 +119,6 @@ pub enum SpawnType {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GameEvent {
-    StartGame,
     EndGame {
         reason: EndGameReason,
     },
@@ -262,7 +261,6 @@ impl EventReduce for GameState {
     fn validate(&self, event: &Self::Event) -> bool {
         use GameEvent::*;
         match event {
-            StartGame => self.unpicked_players.len() > 1 && self.players.is_empty(),
             Pass => self.play_order.len() == self.players.len(),
             ChooseFaction { .. } => {
                 if matches!(self.phase, Phase::Setup(SetupPhase::ChooseFactions)) {
@@ -333,7 +331,6 @@ impl EventReduce for GameState {
             }
         }
         match event {
-            StartGame => {}
             EndGame { .. } => {
                 self.phase = Phase::EndGame;
             }
@@ -341,6 +338,7 @@ impl EventReduce for GameState {
                 self.unpicked_players.insert(player_id, Default::default());
             }
             PlayerDisconnected { player_id } => {
+                self.unpicked_players.remove(&player_id);
                 self.players.remove(&player_id);
             }
             ShowPrompt { prompt, player_id } => {

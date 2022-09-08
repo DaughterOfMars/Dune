@@ -3,8 +3,8 @@ use iyes_loopless::prelude::*;
 use renet::RenetClient;
 
 use crate::{
-    game::state::{GameEvent, GameState},
-    network::{connect_to_server, spawn_server, SendGameEvent},
+    game::state::GameState,
+    network::{connect_to_server, spawn_server, SendEvent, ServerEvent},
     Screen,
 };
 
@@ -86,7 +86,7 @@ fn button(
 struct StartGameMarker;
 
 fn start_game(mut commands: Commands, mut client: ResMut<RenetClient>) {
-    client.send_game_event(GameEvent::StartGame);
+    client.send_event(ServerEvent::LoadAssets);
     commands.remove_resource::<StartGameMarker>();
 }
 

@@ -17,7 +17,7 @@ use crate::{
         ObjectEntityMap, PickedEvent,
     },
     lerper::{InterpolationFunction, Lerp, UITransform},
-    network::SendGameEvent,
+    network::SendEvent,
     util::divide_spice,
     Screen,
 };
@@ -132,7 +132,7 @@ fn faction_pick(
             // TODO: animate them away~
             commands.entity(entity).despawn_recursive();
         }
-        client.send_game_event(GameEvent::ChooseFaction { faction: *faction });
+        client.send_event(GameEvent::ChooseFaction { faction: *faction });
     }
 }
 
@@ -356,7 +356,7 @@ fn faction_prediction(
             // TODO: animate them away~
             commands.entity(entity).despawn_recursive();
         }
-        client.send_game_event(GameEvent::MakeFactionPrediction { faction: *faction });
+        client.send_event(GameEvent::MakeFactionPrediction { faction: *faction });
     }
 }
 
@@ -375,7 +375,7 @@ fn turn_prediction(
             // TODO: animate them away~
             commands.entity(entity).despawn_recursive();
         }
-        client.send_game_event(GameEvent::MakeTurnPrediction { turn: *turn });
+        client.send_event(GameEvent::MakeTurnPrediction { turn: *turn });
     }
 }
 

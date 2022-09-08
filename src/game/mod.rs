@@ -11,16 +11,13 @@ use iyes_loopless::prelude::{AppLooplessStateExt, ConditionSet};
 use rand::prelude::SliceRandom;
 use serde::{Deserialize, Serialize};
 
+use self::systems::*;
 pub use self::{
     object::*,
     phases::{
         setup::{SetupPhase, SetupPlugin},
         storm::StormPhase,
     },
-};
-use self::{
-    state::{GameEvent, GameState},
-    systems::*,
 };
 use crate::{
     components::{Deck, FactionPredictionCard, LocationSector, TraitorCard, TurnPredictionCard},
@@ -33,9 +30,7 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<GameState>()
-            .add_event::<GameEvent>()
-            .init_resource::<ObjectEntityMap>();
+        app.init_resource::<ObjectEntityMap>();
 
         app.add_plugin(SetupPlugin);
 
@@ -109,14 +104,14 @@ impl Phase {
             Phase::Battle => Phase::Collection,
             Phase::Collection => Phase::Control,
             Phase::Control => Phase::Storm(StormPhase::Reveal),
-            Phase::EndGame => Phase::EndGame,
+            Phase::EndGame => Phase::Setup(SetupPhase::ChooseFactions),
         }
     }
 }
 
 impl Default for Phase {
     fn default() -> Self {
-        Self::Setup(SetupPhase::ChooseFactions)
+        Phase::EndGame
     }
 }
 

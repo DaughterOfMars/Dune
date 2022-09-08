@@ -1,4 +1,7 @@
+use std::collections::HashSet;
+
 use rand::seq::SliceRandom;
+use serde::{Deserialize, Serialize};
 
 use super::*;
 use crate::{
@@ -15,9 +18,16 @@ pub fn spawn_server(commands: &mut Commands) {
     });
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ServerEvent {
+    LoadAssets,
+    StartGame,
+}
+
 pub struct Server {
     renet_server: renet::RenetServer,
     game_state: GameState,
+    ready_players: HashSet<PlayerId>,
     ids: ObjectIdGenerator,
 }
 
@@ -28,6 +38,20 @@ impl Server {
         match last_event {
             AdvancePhase => match &self.game_state.phase {
                 Phase::Setup(s) => match s {
+                    SetupPhase::ChooseFactions => {
+                        // TODO: Perhaps allow other ways to determine play order
+                        let mut play_order = self.game_state.unpicked_players.keys().copied().collect::<Vec<_>>();
+                        let mut rng = rand::thread_rng();
+                        play_order.shuffle(&mut rng);
+                        self.consume(SetPlayOrder { play_order })?;
+                        self.consume(SetActive {
+                            player_id: self.game_state.play_order[0],
+                        })?;
+                        self.consume(ShowPrompt {
+                            player_id: self.game_state.play_order[0],
+                            prompt: Prompt::Faction,
+                        })?;
+                    }
                     SetupPhase::Prediction => {
                         if self
                             .game_state
@@ -43,20 +67,6 @@ impl Server {
                 },
                 _ => (),
             },
-            StartGame => {
-                // TODO: Perhaps allow other ways to determine play order
-                let mut play_order = self.game_state.unpicked_players.keys().copied().collect::<Vec<_>>();
-                let mut rng = rand::thread_rng();
-                play_order.shuffle(&mut rng);
-                self.consume(SetPlayOrder { play_order })?;
-                self.consume(SetActive {
-                    player_id: self.game_state.play_order[0],
-                })?;
-                self.consume(ShowPrompt {
-                    player_id: self.game_state.play_order[0],
-                    prompt: Prompt::Faction,
-                })?;
-            }
             ChooseFaction { faction } => {
                 for leader in self
                     .game_state
@@ -129,7 +139,7 @@ impl Server {
         // Receive connection events from clients
         while let Some(event) = self.renet_server.get_event() {
             match event {
-                ServerEvent::ClientConnected(id, ..) => {
+                renet::ServerEvent::ClientConnected(id, ..) => {
                     let event = GameEvent::PlayerJoined { player_id: id.into() };
                     // Tell the recently joined player about the other players
                     for player_id in self.game_state.unpicked_players.keys() {
@@ -142,7 +152,7 @@ impl Server {
 
                     info!("Client {} connected.", id);
                 }
-                ServerEvent::ClientDisconnected(id) => {
+                renet::ServerEvent::ClientDisconnected(id) => {
                     // First consume a disconnect event
                     self.consume(GameEvent::PlayerDisconnected { player_id: id.into() })?;
                     info!("Client {} disconnected", id);
@@ -161,7 +171,24 @@ impl Server {
         // Receive GameEvents from clients. Consume valid events.
         for client_id in self.renet_server.clients_id().into_iter() {
             while let Some(message) = self.renet_server.receive_message(client_id, 0) {
-                if let Ok(event) = bincode::deserialize::<GameEvent>(&message) {
+                if let Ok(event) = bincode::deserialize::<ServerEvent>(&message) {
+                    match &event {
+                        ServerEvent::LoadAssets | ServerEvent::StartGame => {
+                            if self.game_state.unpicked_players.len() < 2 {
+                                warn!("Player {} sent invalid event:\n\t{:#?}", client_id, event);
+                                continue;
+                            }
+                        }
+                    }
+                    if let ServerEvent::StartGame = &event {
+                        self.ready_players.insert(client_id.into());
+                        if self.ready_players.len() == self.game_state.unpicked_players.len() {
+                            self.consume(GameEvent::AdvancePhase)?;
+                        }
+                    }
+                    let serialized_event = bincode::serialize(&event)?;
+                    self.renet_server.broadcast_message(0, serialized_event);
+                } else if let Ok(event) = bincode::deserialize::<GameEvent>(&message) {
                     if self.game_state.validate(&event) {
                         trace!("Player {} sent:\n\t{:#?}", client_id, event);
                         self.consume(event)?;
@@ -200,6 +227,7 @@ fn server() -> Result<(), RenetNetworkingError> {
     let mut server = Server {
         renet_server,
         game_state,
+        ready_players: Default::default(),
         ids: Default::default(),
     };
 

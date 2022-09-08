@@ -12,8 +12,9 @@ use bevy::prelude::*;
 use iyes_loopless::prelude::IntoConditionalSystem;
 use renet::{
     ClientAuthentication, RenetClient, RenetConnectionConfig, RenetError, ServerAuthentication, ServerConfig,
-    ServerEvent, NETCODE_USER_DATA_BYTES,
+    NETCODE_USER_DATA_BYTES,
 };
+use serde::Serialize;
 use thiserror::Error;
 
 pub use self::{client::*, server::*};
@@ -39,7 +40,10 @@ pub struct RenetNetworkingPlugin;
 
 impl Plugin for RenetNetworkingPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        app.add_event::<RenetServerExitedEvent>()
+        app.init_resource::<GameState>()
+            .add_event::<GameEvent>()
+            .add_event::<ServerEvent>()
+            .add_event::<RenetServerExitedEvent>()
             .add_system(await_server.run_if_resource_exists::<RenetServer>())
             .add_system(process_server_events.run_if_resource_exists::<RenetClient>());
     }
@@ -72,27 +76,32 @@ fn process_server_events(
     mut client: ResMut<RenetClient>,
     mut game_state: ResMut<GameState>,
     mut game_events: EventWriter<GameEvent>,
+    mut server_events: EventWriter<ServerEvent>,
 ) {
     while let Some(message) = client.receive_message(0) {
-        // Whenever the server sends a message we know that it must be a game event
-        let event: GameEvent = bincode::deserialize(&message).unwrap();
-        trace!("{:#?}", event);
+        // Route the message types appropriately
+        if let Ok(event) = bincode::deserialize::<GameEvent>(&message) {
+            trace!("{:#?}", event);
 
-        // We trust the server - It's always been good to us!
-        // No need to validate the events it is sending us
-        game_state.consume(event.clone());
+            game_state.consume(event.clone());
 
-        // Send the event into the bevy event system so systems can react to it
-        game_events.send(event);
+            game_events.send(event);
+        } else if let Ok(event) = bincode::deserialize::<ServerEvent>(&message) {
+            trace!("{:#?}", event);
+
+            server_events.send(event);
+        } else {
+            warn!("Received invalid message from the server: {:x?}", message);
+        }
     }
 }
 
-pub trait SendGameEvent {
-    fn send_game_event(&mut self, event: GameEvent);
+pub trait SendEvent {
+    fn send_event<T: Serialize>(&mut self, event: T);
 }
 
-impl SendGameEvent for RenetClient {
-    fn send_game_event(&mut self, event: GameEvent) {
+impl SendEvent for RenetClient {
+    fn send_event<T: Serialize>(&mut self, event: T) {
         self.send_message(0, bincode::serialize(&event).unwrap());
     }
 }

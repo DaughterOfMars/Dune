@@ -29,13 +29,11 @@ use iyes_loopless::{
     prelude::{AppLooplessStateExt, IntoConditionalSystem},
     state::NextState,
 };
+use network::{SendEvent, ServerEvent};
+use renet::RenetClient;
 
 use self::{
-    components::*,
-    game::{state::GameEvent, *},
-    input::GameInputPlugin,
-    lerper::LerpPlugin,
-    menu::MenuPlugin,
+    components::*, game::*, input::GameInputPlugin, lerper::LerpPlugin, menu::MenuPlugin,
     network::RenetNetworkingPlugin,
 };
 
@@ -107,9 +105,9 @@ fn init_camera(mut commands: Commands) {
         .insert_bundle(PickingCameraBundle::default());
 }
 
-fn start_game(mut commands: Commands, mut game_events: EventReader<GameEvent>) {
-    for event in game_events.iter() {
-        if let GameEvent::StartGame = event {
+fn start_game(mut commands: Commands, mut server_events: EventReader<ServerEvent>) {
+    for event in server_events.iter() {
+        if let ServerEvent::LoadAssets = event {
             commands.insert_resource(NextState(Screen::Loading));
         }
     }
@@ -168,6 +166,7 @@ fn load_game(
     asset_server: Res<AssetServer>,
     loading_assets: Res<LoadingAssets>,
     mut loading_bar: Query<&mut Style, With<LoadingBar>>,
+    mut client: ResMut<RenetClient>,
 ) {
     let mut counts = HashMap::new();
     for handle in loading_assets.assets.iter() {
@@ -185,6 +184,7 @@ fn load_game(
     });
     if *counts.entry("loading").or_insert(0) == 0 {
         commands.insert_resource(NextState(Screen::Game));
+        client.send_event(ServerEvent::StartGame);
     }
 }
 
