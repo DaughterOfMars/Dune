@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
 use crate::{
-    components::{Card, Faction, FactionPredictionCard, Spice, TurnPredictionCard},
+    components::{Card, Faction, FactionChoiceCard, FactionPredictionCard, Spice, TurnPredictionCard},
     game::{
         state::{GameEvent, GameState, PlayerId, Prompt},
         ObjectEntityMap, PickedEvent,
@@ -81,7 +81,7 @@ fn prompt_factions(
                         let node = game_state.data.prediction_nodes.factions[i];
 
                         commands
-                            .spawn_bundle((Card, FactionPredictionCard { faction }))
+                            .spawn_bundle((Card, FactionChoiceCard { faction }))
                             .insert(
                                 Lerp::ui_from_to(
                                     UITransform::default().with_rotation(Quat::from_rotation_x(PI / 2.0)),
@@ -119,13 +119,13 @@ fn prompt_factions(
 
 fn faction_pick(
     mut commands: Commands,
-    mut picked_events: EventReader<PickedEvent<FactionPredictionCard>>,
+    mut picked_events: EventReader<PickedEvent<FactionChoiceCard>>,
     mut client: ResMut<RenetClient>,
-    faction_cards: Query<Entity, With<FactionPredictionCard>>,
+    faction_cards: Query<Entity, With<FactionChoiceCard>>,
 ) {
     for PickedEvent {
         picked: _,
-        inner: FactionPredictionCard { faction },
+        inner: FactionChoiceCard { faction },
     } in picked_events.iter()
     {
         for entity in faction_cards.iter() {

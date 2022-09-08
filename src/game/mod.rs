@@ -20,7 +20,7 @@ pub use self::{
     },
 };
 use crate::{
-    components::{Deck, FactionPredictionCard, LocationSector, TraitorCard, TurnPredictionCard},
+    components::{Deck, FactionChoiceCard, FactionPredictionCard, LocationSector, TraitorCard, TurnPredictionCard},
     lerper::Lerp,
     util::card_jitter,
     Screen,
@@ -34,7 +34,8 @@ impl Plugin for GamePlugin {
 
         app.add_plugin(SetupPlugin);
 
-        app.add_event::<PickedEvent<FactionPredictionCard>>()
+        app.add_event::<PickedEvent<FactionChoiceCard>>()
+            .add_event::<PickedEvent<FactionPredictionCard>>()
             .add_event::<PickedEvent<TurnPredictionCard>>()
             .add_event::<PickedEvent<TraitorCard>>()
             .add_event::<PickedEvent<LocationSector>>();
@@ -43,6 +44,7 @@ impl Plugin for GamePlugin {
             ConditionSet::new()
                 .run_in_state(Screen::Game)
                 .with_system(spawn_object)
+                .with_system(hiararchy_picker::<FactionChoiceCard>)
                 .with_system(hiararchy_picker::<FactionPredictionCard>)
                 .with_system(hiararchy_picker::<TurnPredictionCard>)
                 .with_system(hiararchy_picker::<TraitorCard>)

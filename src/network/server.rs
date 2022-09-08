@@ -53,13 +53,19 @@ impl Server {
                         })?;
                     }
                     SetupPhase::Prediction => {
-                        if self
+                        if let Some(bg_player) = self
                             .game_state
                             .players
-                            .values()
-                            .find(|p| p.faction == Faction::BeneGesserit)
-                            .is_none()
+                            .iter()
+                            .find(|(_, p)| p.faction == Faction::BeneGesserit)
+                            .map(|(id, _)| *id)
                         {
+                            self.consume(SetActive { player_id: bg_player })?;
+                            self.consume(ShowPrompt {
+                                player_id: bg_player,
+                                prompt: Prompt::FactionPrediction,
+                            })?;
+                        } else {
                             self.consume(AdvancePhase)?;
                         }
                     }
@@ -119,6 +125,18 @@ impl Server {
                 }) {
                     self.consume(AdvancePhase)?;
                 }
+            }
+            MakeFactionPrediction { .. } => {
+                self.consume(ShowPrompt {
+                    player_id: self.game_state.active_player.unwrap(),
+                    prompt: Prompt::TurnPrediction,
+                })?;
+            }
+            MakeTurnPrediction { .. } => {
+                self.consume(SetActive {
+                    player_id: self.game_state.play_order[0],
+                })?;
+                self.consume(AdvancePhase)?;
             }
             _ => (),
         }

@@ -249,6 +249,11 @@ pub struct FactionPredictionCard {
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
+pub struct FactionChoiceCard {
+    pub faction: Faction,
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
 pub struct TraitorCard {
     pub leader: Leader,
 }
