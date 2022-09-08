@@ -4,13 +4,13 @@ use derive_more::{Display, From};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 
-use super::{Object, ObjectId, ObjectIdGenerator};
+use super::{Object, ObjectId};
 use crate::{
     components::{
         Bonus, Faction, Leader, Location, LocationSector, SpiceCard, StormCard, TraitorCard, TreacheryCard, Troop,
     },
     data::SpiceLocationData,
-    game::{Phase, SetupPhase, WithObjectId},
+    game::{Phase, SetupPhase},
     resources::Data,
 };
 
@@ -99,13 +99,22 @@ pub enum EndGameReason {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SpawnType {
-    Leader { player_id: PlayerId, leader: Leader },
-    Troop { player_id: PlayerId, unit: Troop },
-    TraitorCard(TraitorCard),
-    TreacheryCard(TreacheryCard),
-    SpiceCard(SpiceCard),
-    StormCard(StormCard),
-    Worm { location: Location },
+    Leader {
+        player_id: PlayerId,
+        leader: Object<Leader>,
+    },
+    Troop {
+        player_id: PlayerId,
+        unit: Object<Troop>,
+    },
+    TraitorCard(Object<TraitorCard>),
+    TreacheryCard(Object<TreacheryCard>),
+    SpiceCard(Object<SpiceCard>),
+    StormCard(Object<StormCard>),
+    Worm {
+        location: Location,
+        id: ObjectId,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -245,21 +254,6 @@ pub struct GameState {
     pub history: VecDeque<GameEvent>,
     #[serde(skip)]
     pub data: Data,
-    object_id_gen: ObjectIdGenerator,
-}
-
-impl GameState {
-    fn next_id(&mut self) -> ObjectId {
-        self.object_id_gen.next_id()
-    }
-
-    fn spawn<T>(&mut self, t: T) -> Object<T> {
-        t.with_id(self.next_id())
-    }
-
-    pub fn last_id(&self) -> Option<ObjectId> {
-        self.object_id_gen.last
-    }
 }
 
 impl EventReduce for GameState {
@@ -357,7 +351,6 @@ impl EventReduce for GameState {
             }
             SpawnObject { spawn_type } => match spawn_type {
                 SpawnType::Leader { player_id, leader } => {
-                    let leader = self.spawn(leader);
                     self.players
                         .get_mut(&player_id)
                         .unwrap()
@@ -365,27 +358,21 @@ impl EventReduce for GameState {
                         .insert(leader, false);
                 }
                 SpawnType::Troop { player_id, unit } => {
-                    let unit = self.spawn(unit);
                     self.players.get_mut(&player_id).unwrap().offworld_forces.insert(unit);
                 }
                 SpawnType::TraitorCard(card) => {
-                    let card = self.spawn(card);
                     self.decks.traitor.cards.push(card);
                 }
                 SpawnType::TreacheryCard(card) => {
-                    let card = self.spawn(card);
                     self.decks.treachery.cards.push(card);
                 }
                 SpawnType::SpiceCard(card) => {
-                    let card = self.spawn(card);
                     self.decks.spice.cards.push(card);
                 }
                 SpawnType::StormCard(card) => {
-                    let card = self.spawn(card);
                     self.decks.storm.cards.push(card);
                 }
-                SpawnType::Worm { location } => {
-                    let id = self.next_id();
+                SpawnType::Worm { location, id } => {
                     self.board.get_mut(&location).unwrap().worm.replace(id);
                 }
             },

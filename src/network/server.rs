@@ -5,7 +5,7 @@ use crate::{
     components::{Faction, Troop},
     game::{
         state::{Prompt, SpawnType},
-        Phase, SetupPhase,
+        ObjectIdGenerator, Phase, SetupPhase,
     },
 };
 
@@ -18,6 +18,7 @@ pub fn spawn_server(commands: &mut Commands) {
 pub struct Server {
     renet_server: renet::RenetServer,
     game_state: GameState,
+    ids: ObjectIdGenerator,
 }
 
 impl Server {
@@ -65,6 +66,7 @@ impl Server {
                     .into_iter()
                     .filter_map(|(leader, data)| (data.faction == faction).then_some(leader))
                 {
+                    let leader = self.ids.spawn(leader);
                     self.consume(SpawnObject {
                         spawn_type: SpawnType::Leader {
                             player_id: self.game_state.active_player.unwrap(),
@@ -79,6 +81,7 @@ impl Server {
                             .take(self.game_state.data.factions[&faction].special_forces as usize),
                     )
                 {
+                    let unit = self.ids.spawn(unit);
                     self.consume(SpawnObject {
                         spawn_type: SpawnType::Troop {
                             player_id: self.game_state.active_player.unwrap(),
@@ -201,6 +204,7 @@ fn server() -> Result<(), RenetNetworkingError> {
     let mut server = Server {
         renet_server,
         game_state,
+        ids: Default::default(),
     };
 
     loop {

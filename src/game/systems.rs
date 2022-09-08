@@ -6,7 +6,7 @@ use rand::seq::SliceRandom;
 
 use super::{
     state::{DeckType, GameEvent, GameState, PlayerId, SpawnType},
-    ActivePlayerText, ObjectEntityMap, Phase, PhaseText, SetupPhase, Shuffling,
+    ActivePlayerText, Object, ObjectEntityMap, Phase, PhaseText, SetupPhase, Shuffling,
 };
 use crate::{
     components::{Card, Deck, TraitorCard, TraitorDeck},
@@ -24,10 +24,15 @@ pub fn spawn_object(
 ) {
     for event in game_events.iter() {
         if let GameEvent::SpawnObject { spawn_type } = event {
-            let object_id = game_state.last_id().unwrap();
-
             match spawn_type {
-                SpawnType::Leader { player_id, leader } => {
+                SpawnType::Leader {
+                    player_id,
+                    leader:
+                        Object {
+                            id: object_id,
+                            inner: leader,
+                        },
+                } => {
                     if *my_id == *player_id {
                         let big_token = asset_server.get_handle("big_token.gltf#Mesh0/Primitive0");
                         let texture = asset_server
@@ -38,19 +43,26 @@ pub fn spawn_object(
                                 game_state.data.token_nodes.leaders[0],
                             )))
                             .insert_bundle(PickableBundle::default())
-                            .insert_bundle((*leader, object_id))
+                            .insert_bundle((*leader, *object_id))
                             .insert_bundle(PbrBundle {
                                 mesh: big_token.clone(),
                                 material: materials.add(StandardMaterial::from(texture)),
                                 ..Default::default()
                             })
                             .id();
-                        object_entity.map.insert(object_id, entity);
+                        object_entity.map.insert(*object_id, entity);
                     } else {
                         // TODO: represent other player objects
                     }
                 }
-                SpawnType::Troop { player_id, unit } => {
+                SpawnType::Troop {
+                    player_id,
+                    unit:
+                        Object {
+                            id: object_id,
+                            inner: unit,
+                        },
+                } => {
                     if *my_id == *player_id {
                         let faction = game_state.players.get(player_id).unwrap().faction;
                         let little_token = asset_server.get_handle("little_token.gltf#Mesh0/Primitive0");
@@ -62,20 +74,23 @@ pub fn spawn_object(
                                 game_state.data.token_nodes.fighters[0], // + (i as f32 * 0.0036 * Vec3::Y)
                             )))
                             .insert_bundle(PickableBundle::default())
-                            .insert_bundle((*unit, object_id))
+                            .insert_bundle((*unit, *object_id))
                             .insert_bundle(PbrBundle {
                                 mesh: little_token.clone(),
                                 material: materials.add(StandardMaterial::from(troop_texture)),
                                 ..Default::default()
                             })
                             .id();
-                        object_entity.map.insert(object_id, entity);
+                        object_entity.map.insert(*object_id, entity);
                     } else {
                         // TODO: represent other player objects
                     }
                 }
                 SpawnType::TraitorCard(_) => todo!(),
-                SpawnType::TreacheryCard(card) => {
+                SpawnType::TreacheryCard(Object {
+                    id: object_id,
+                    inner: card,
+                }) => {
                     let card_face = asset_server.get_handle("card.gltf#Mesh0/Primitive0");
                     let card_back = asset_server.get_handle("card.gltf#Mesh0/Primitive1");
 
@@ -94,7 +109,7 @@ pub fn spawn_object(
                     let treachery_back_texture = asset_server.get_handle("treachery/treachery_back.png");
 
                     let entity = commands
-                        .spawn_bundle((*card, object_id))
+                        .spawn_bundle((*card, *object_id))
                         .insert_bundle(SpatialBundle::from_transform(
                             // TODO: stack them
                             Transform::from_translation(vec3(1.23, 0.0049, -0.87))
@@ -113,9 +128,12 @@ pub fn spawn_object(
                             });
                         })
                         .id();
-                    object_entity.map.insert(object_id, entity);
+                    object_entity.map.insert(*object_id, entity);
                 }
-                SpawnType::SpiceCard(card) => {
+                SpawnType::SpiceCard(Object {
+                    id: object_id,
+                    inner: card,
+                }) => {
                     let card_face = asset_server.get_handle("card.gltf#Mesh0/Primitive0");
                     let card_back = asset_server.get_handle("card.gltf#Mesh0/Primitive1");
 
@@ -124,7 +142,7 @@ pub fn spawn_object(
                     let spice_back_texture = asset_server.get_handle("spice/spice_back.png");
 
                     let entity = commands
-                        .spawn_bundle((*card, object_id))
+                        .spawn_bundle((*card, *object_id))
                         .insert_bundle(SpatialBundle {
                             transform: Transform::from_translation(vec3(1.23, 0.0049, 0.3))
                                 * Transform::from_rotation(Quat::from_rotation_z(PI)),
@@ -143,9 +161,12 @@ pub fn spawn_object(
                             });
                         })
                         .id();
-                    object_entity.map.insert(object_id, entity);
+                    object_entity.map.insert(*object_id, entity);
                 }
-                SpawnType::StormCard(card) => {
+                SpawnType::StormCard(Object {
+                    id: object_id,
+                    inner: card,
+                }) => {
                     let card_face = asset_server.get_handle("card.gltf#Mesh0/Primitive0");
                     let card_back = asset_server.get_handle("card.gltf#Mesh0/Primitive1");
 
@@ -153,7 +174,7 @@ pub fn spawn_object(
                     let storm_back_texture = asset_server.get_handle("storm/storm_back.png");
 
                     let entity = commands
-                        .spawn_bundle((*card, object_id))
+                        .spawn_bundle((*card, *object_id))
                         .insert_bundle(SpatialBundle {
                             transform: Transform::from_translation(vec3(1.23, 0.0049, 0.87))
                                 * Transform::from_rotation(Quat::from_rotation_z(PI)),
@@ -172,9 +193,9 @@ pub fn spawn_object(
                             });
                         })
                         .id();
-                    object_entity.map.insert(object_id, entity);
+                    object_entity.map.insert(*object_id, entity);
                 }
-                SpawnType::Worm { location } => todo!(),
+                SpawnType::Worm { location, id } => todo!(),
             }
         }
     }

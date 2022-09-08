@@ -79,6 +79,10 @@ impl ObjectIdGenerator {
             self.free.pop().unwrap()
         }
     }
+
+    pub fn spawn<T>(&mut self, t: T) -> Object<T> {
+        t.with_id(self.next_id())
+    }
 }
 
 #[derive(Clone, Debug, Default)]
