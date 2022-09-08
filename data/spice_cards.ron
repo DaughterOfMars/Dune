@@ -1,137 +1,137 @@
 {
     BrokenLand: (
         name: "Broken Land",
-        location_data: (
+        location_data: Some((
             location: BrokenLand,
             sector: 11,
             spice: 8,
-        ),
+        )),
         texture: "brokenland",
     ),
     CielagoNorth: (
         name: "Cielago North",
-        location_data: (
+        location_data: Some((
             location: CielagoNorth,
             sector: 2,
             spice: 8,
-        ),
+        )),
         texture: "cielagonorth",
     ),
     CielagoSouth: (
         name: "Cielago South",
-        location_data: (
+        location_data: Some((
             location: CielagoSouth,
             sector: 1,
             spice: 12,
-        ),
+        )),
         texture: "cielagosouth",
     ),
     FuneralPlain: (
         name: "Funeral Plain",
-        location_data: (
+        location_data: Some((
             location: FuneralPlain,
             sector: 14,
             spice: 6,
-        ),
+        )),
         texture: "funeralplain",
     ),
     TheGreatFlat: (
         name: "The Great Flat",
-        location_data: (
+        location_data: Some((
             location: TheGreatFlat,
             sector: 14,
             spice: 10,
-        ),
+        )),
         texture: "greatflat",
     ),
     HabbanyaErg: (
         name: "Habbanya Erg",
-        location_data: (
+        location_data: Some((
             location: HabbanyaErg,
             sector: 13,
             spice: 8,
-        ),
+        )),
         texture: "habbanyaerg",
     ),
     HabbanyaRidgeFlat: (
         name: "Habbanya Ridge Flat",
-        location_data: (
+        location_data: Some((
             location: HabbanyaRidgeFlat,
             sector: 17,
             spice: 10,
-        ),
+        )),
         texture: "habbanyaridgeflat",
     ),
     HaggaBasin: (
         name: "Hagga Basin",
-        location_data: (
+        location_data: Some((
             location: HaggaBasin,
             sector: 12,
             spice: 6,
-        ),
+        )),
         texture: "haggabasin",
     ),
     TheMinorErg: (
         name: "The Minor Erg",
-        location_data: (
+        location_data: Some((
             location: TheMinorErg,
             sector: 7,
             spice: 8,
-        ),
+        )),
         texture: "minorerg",
     ),
     OldGap: (
         name: "Old Gap",
-        location_data: (
+        location_data: Some((
             location: OldGap,
             sector: 9,
             spice: 6,
-        ),
+        )),
         texture: "oldgap",
     ),
     RedChasm: (
         name: "Red Chasm",
-        location_data: (
+        location_data: Some((
             location: RedChasm,
             sector: 6,
             spice: 8,
-        ),
+        )),
         texture: "redchasm",
     ),
     RockOutcroppings: (
         name: "Rock Outcroppings",
-        location_data: (
+        location_data: Some((
             location: RockOutcroppings,
             sector: 13,
             spice: 6,
-        ),
+        )),
         texture: "rockoutcroppings",
     ),
     SihayaRidge: (
         name: "Sihaya Ridge",
-        location_data: (
+        location_data: Some((
             location: SihayaRidge,
             sector: 8,
             spice: 6,
-        ),
+        )),
         texture: "sihayaridge",
     ),
     SouthMesa: (
         name: "South Mesa",
-        location_data: (
+        location_data: Some((
             location: SouthMesa,
             sector: 4,
             spice: 10,
-        ),
+        )),
         texture: "southmesa",
     ),
     WindPassNorth: (
         name: "Wind Pass North",
-        location_data: (
+        location_data: Some((
             location: WindPassNorth,
             sector: 16,
             spice: 6,
-        ),
+        )),
         texture: "windpassnorth",
     ),
     ShaiHalud: (

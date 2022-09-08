@@ -17,7 +17,11 @@ impl Plugin for MenuPlugin {
             .add_enter_system(Screen::Host, init_host_menu)
             .add_enter_system(Screen::Join, init_client_menu)
             .add_system(button.run_not_in_state(Screen::Game))
-            .add_system(server_client_list.run_not_in_state(Screen::Game))
+            .add_system(
+                server_client_list
+                    .run_not_in_state(Screen::Game)
+                    .run_not_in_state(Screen::MainMenu),
+            )
             .add_system(start_game.run_if_resource_added::<StartGameMarker>());
     }
 }

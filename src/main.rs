@@ -24,13 +24,19 @@ use bevy::{
 use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_mod_picking::{DefaultPickingPlugins, PickableBundle, PickingCameraBundle};
 use bevy_renet::RenetClientPlugin;
+use game::state::GameState;
 use iyes_loopless::{
     prelude::{AppLooplessStateExt, IntoConditionalSystem},
     state::NextState,
 };
 
 use self::{
-    components::*, game::*, input::GameInputPlugin, lerper::LerpPlugin, network::RenetNetworkingPlugin, resources::*,
+    components::*,
+    game::{state::GameEvent, *},
+    input::GameInputPlugin,
+    lerper::LerpPlugin,
+    menu::MenuPlugin,
+    network::RenetNetworkingPlugin,
 };
 
 pub const MAX_PLAYERS: u8 = 6;
@@ -70,10 +76,12 @@ fn main() {
         .add_plugin(GameInputPlugin)
         .add_plugin(GamePlugin)
         .add_plugin(LerpPlugin)
+        .add_plugin(MenuPlugin)
         .add_plugins(DefaultPickingPlugins);
 
     app.add_startup_system(init_camera);
 
+    app.add_system(start_game);
     app.add_enter_system(Screen::Loading, init_loading_game);
     app.add_system(load_game.run_in_state(Screen::Loading));
     app.add_exit_system(Screen::Loading, tear_down);
@@ -97,6 +105,14 @@ fn init_camera(mut commands: Commands) {
         })
         .insert(UiCameraConfig::default())
         .insert_bundle(PickingCameraBundle::default());
+}
+
+fn start_game(mut commands: Commands, mut game_events: EventReader<GameEvent>) {
+    for event in game_events.iter() {
+        if let GameEvent::StartGame = event {
+            commands.insert_resource(NextState(Screen::Loading));
+        }
+    }
 }
 
 #[derive(Component)]
@@ -174,7 +190,7 @@ fn load_game(
 
 fn init_scene(
     mut commands: Commands,
-    data: Res<Data>,
+    game_state: Res<GameState>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -199,7 +215,7 @@ fn init_scene(
             ..default()
         })
         .insert_bundle(PickableBundle::default())
-        .insert(data.camera_nodes.board);
+        .insert(game_state.data.camera_nodes.board);
 
     commands
         .spawn_bundle(TextBundle {
@@ -249,7 +265,7 @@ fn init_scene(
         })
         .insert(ActivePlayerText);
 
-    for (location, location_data) in data.locations.iter() {
+    for (location, location_data) in game_state.data.locations.iter() {
         commands
             .spawn_bundle(SpatialBundle::default())
             .insert(*location)

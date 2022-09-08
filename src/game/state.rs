@@ -344,7 +344,12 @@ impl EventReduce for GameState {
                 self.players.remove(&player_id);
             }
             ShowPrompt { prompt, player_id } => {
-                self.players.get_mut(&player_id).unwrap().prompt.replace(prompt);
+                self.players
+                    .get_mut(&player_id)
+                    .map(|p| &mut p.prompt)
+                    .or(self.unpicked_players.get_mut(&player_id).map(|p| &mut p.prompt))
+                    .unwrap()
+                    .replace(prompt);
             }
             AdvancePhase => {
                 self.phase = self.phase.next();

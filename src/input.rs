@@ -2,7 +2,7 @@ use bevy::{prelude::*, render::camera::Camera};
 use bevy_mod_picking::PickingEvent;
 use iyes_loopless::prelude::IntoConditionalSystem;
 
-use crate::{data::CameraNode, lerper::Lerp, resources::Data, Screen};
+use crate::{data::CameraNode, game::state::GameState, lerper::Lerp, Screen};
 
 pub struct GameInputPlugin;
 
@@ -58,7 +58,7 @@ fn lookaround(
 
 fn camera_reset(
     mut commands: Commands,
-    data: Res<Data>,
+    game_state: Res<GameState>,
     keyboard_input: Res<Input<KeyCode>>,
     camera: Query<Entity, (With<Camera>, Without<Lerp>)>,
 ) {
@@ -66,7 +66,7 @@ fn camera_reset(
         if let Some(camera) = camera.iter().next() {
             commands
                 .entity(camera)
-                .insert(Lerp::move_camera(data.camera_nodes.main, 1.0));
+                .insert(Lerp::move_camera(game_state.data.camera_nodes.main, 1.0));
         }
     }
 }

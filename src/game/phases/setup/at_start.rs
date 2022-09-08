@@ -95,7 +95,7 @@ fn enable_force_positions(
     players: Query<&Faction, With<Player>>,
     locations: Query<(Entity, &LocationSector)>,
     deployed_troops: Query<Entity, (With<Troop>, With<Location>)>,
-    data: Res<Data>,
+    game_state: Res<GameState>,
 ) {
     if deployed_troops.iter().count() as u8
         == data
@@ -137,7 +137,7 @@ fn await_force_placement(
     players: Query<&Faction, With<Player>>,
     offworld_troops: Query<(Entity, &Unique), (With<Troop>, Without<Location>)>,
     deployed_troops: Query<&Unique, (With<Troop>, With<Location>)>,
-    data: Res<Data>,
+    game_state: Res<GameState>,
 ) {
     let mut troops_map = offworld_troops
         .iter()

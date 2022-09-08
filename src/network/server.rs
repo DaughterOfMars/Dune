@@ -131,20 +131,16 @@ impl Server {
             match event {
                 ServerEvent::ClientConnected(id, ..) => {
                     let event = GameEvent::PlayerJoined { player_id: id.into() };
-                    if self.game_state.validate(&event) {
-                        // Tell the recently joined player about the other players
-                        for player_id in self.game_state.players.keys() {
-                            let event = GameEvent::PlayerJoined { player_id: *player_id };
-                            self.renet_server.send_message(id, 0, bincode::serialize(&event)?);
-                        }
-
-                        // Add the new player to the game
-                        self.consume(event)?;
-
-                        info!("Client {} connected.", id);
-                    } else {
-                        warn!("Player sent conflicting client id:\n\t{:#?}", event);
+                    // Tell the recently joined player about the other players
+                    for player_id in self.game_state.unpicked_players.keys() {
+                        let event = GameEvent::PlayerJoined { player_id: *player_id };
+                        self.renet_server.send_message(id, 0, bincode::serialize(&event)?);
                     }
+
+                    // Add the new player to the game
+                    self.consume(event)?;
+
+                    info!("Client {} connected.", id);
                 }
                 ServerEvent::ClientDisconnected(id) => {
                     // First consume a disconnect event

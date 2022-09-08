@@ -28,7 +28,7 @@ impl Default for Data {
     fn default() -> Self {
         use ron::de::from_reader;
         Data {
-            locations: ron::de::from_reader(File::open("data/locations.ron").unwrap()).unwrap(),
+            locations: from_reader(File::open("data/locations.ron").unwrap()).unwrap(),
             leaders: from_reader(File::open("data/leaders.ron").unwrap()).unwrap(),
             factions: from_reader(File::open("data/factions.ron").unwrap()).unwrap(),
             treachery_cards: from_reader(File::open("data/treachery_cards.ron").unwrap()).unwrap(),
