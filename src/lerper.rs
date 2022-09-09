@@ -1,7 +1,6 @@
 use std::f32::consts::PI;
 
 use bevy::{math::vec2, prelude::*, render::camera::Camera};
-use bevy_inspector_egui::{Inspectable, RegisterInspectable};
 
 use crate::{data::CameraNode, util::screen_to_world};
 
@@ -177,7 +176,7 @@ impl Lerp {
     }
 }
 
-#[derive(Copy, Clone, Component, Inspectable)]
+#[derive(Copy, Clone, Component)]
 pub struct UITransform {
     translation: Vec2,
     rotation: Quat,
@@ -270,8 +269,7 @@ impl Plugin for LerpPlugin {
             .add_system(init_lerp)
             .add_system(lerp_ui)
             .add_system(lerp_world)
-            .add_system(ui_element)
-            .register_inspectable::<UITransform>();
+            .add_system(ui_element);
     }
 }
 
@@ -415,16 +413,17 @@ fn lerp_world(
 
 fn ui_element(
     mut ui_elements: Query<(&mut Transform, &UITransform), Without<Camera>>,
-    camera: Query<(&GlobalTransform, &Camera)>,
+    cameras: Query<(&GlobalTransform, &Camera)>,
 ) {
     for (mut transform, ui_transform) in ui_elements.iter_mut() {
-        let (cam_transform, camera) = camera.single();
-        let cam_transform = cam_transform.compute_transform();
-        *transform = Transform::from_translation(screen_to_world(
-            ui_transform.translation,
-            cam_transform,
-            camera.projection_matrix(),
-        )) * Transform::from_rotation(cam_transform.rotation * ui_transform.rotation)
-            * Transform::from_scale(Vec3::splat(UI_SCALE * ui_transform.scale))
+        if let Some((cam_transform, camera)) = cameras.iter().find(|(_, cam)| cam.is_active) {
+            let cam_transform = cam_transform.compute_transform();
+            *transform = Transform::from_translation(screen_to_world(
+                ui_transform.translation,
+                cam_transform,
+                camera.projection_matrix(),
+            )) * Transform::from_rotation(cam_transform.rotation * ui_transform.rotation)
+                * Transform::from_scale(Vec3::splat(UI_SCALE * ui_transform.scale))
+        }
     }
 }

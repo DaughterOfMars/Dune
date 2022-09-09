@@ -20,7 +20,7 @@ use bevy::{
     utils::default,
 };
 #[cfg(feature = "debug")]
-use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_editor_pls::EditorPlugin;
 use bevy_mod_picking::{DefaultPickingPlugins, PickableBundle, PickingCameraBundle};
 use bevy_renet::RenetClientPlugin;
 use game::state::GameState;
@@ -66,7 +66,7 @@ fn main() {
     app.add_plugins(DefaultPlugins);
 
     #[cfg(feature = "debug")]
-    app.add_plugin(WorldInspectorPlugin::new());
+    app.add_plugin(EditorPlugin);
 
     app.add_plugin(RenetClientPlugin)
         .add_plugin(RenetNetworkingPlugin)
@@ -79,10 +79,9 @@ fn main() {
     app.add_startup_system(init_camera);
 
     app.add_system(start_game);
-    app.add_enter_system(Screen::Loading, init_loading_game);
+    app.add_enter_system(Screen::Loading, tear_down.chain(init_loading_game));
     app.add_system(load_game.run_in_state(Screen::Loading));
-    app.add_exit_system(Screen::Loading, tear_down);
-    app.add_enter_system(Screen::Game, init_scene);
+    app.add_enter_system(Screen::Game, tear_down.chain(init_scene));
 
     app.run();
 }
@@ -301,6 +300,6 @@ fn init_scene(
 
 fn tear_down(mut commands: Commands, screen_entities: Query<Entity, Without<Camera>>) {
     for entity in screen_entities.iter() {
-        commands.entity(entity).despawn_recursive();
+        commands.entity(entity).despawn();
     }
 }

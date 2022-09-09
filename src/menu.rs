@@ -5,7 +5,7 @@ use renet::RenetClient;
 use crate::{
     game::state::GameState,
     network::{connect_to_server, spawn_server, SendEvent, ServerEvent},
-    Screen,
+    tear_down, Screen,
 };
 
 pub struct MenuPlugin;
@@ -13,9 +13,9 @@ pub struct MenuPlugin;
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ButtonColors>()
-            .add_enter_system(Screen::MainMenu, init_main_menu)
-            .add_enter_system(Screen::Host, init_host_menu)
-            .add_enter_system(Screen::Join, init_client_menu)
+            .add_enter_system(Screen::MainMenu, tear_down.chain(init_main_menu))
+            .add_enter_system(Screen::Host, tear_down.chain(init_host_menu))
+            .add_enter_system(Screen::Join, tear_down.chain(init_client_menu))
             .add_system(button.run_not_in_state(Screen::Game))
             .add_system(
                 server_client_list
@@ -307,11 +307,13 @@ fn init_client_menu(mut commands: Commands, asset_server: Res<AssetServer>, butt
 
 fn server_client_list(mut list: Query<&mut Text, With<ServerList>>, game_state: Res<GameState>) {
     if game_state.is_changed() {
-        let mut s = "Joined Users:".to_string();
-        for player_id in game_state.unpicked_players.iter() {
-            s += "\n";
-            s += player_id.0.to_string().as_str();
+        if let Ok(mut list) = list.get_single_mut() {
+            let mut s = "Joined Users:".to_string();
+            for player_id in game_state.unpicked_players.iter() {
+                s += "\n";
+                s += player_id.0.to_string().as_str();
+            }
+            list.sections[0].value = s;
         }
-        list.single_mut().sections[0].value = s;
     }
 }
