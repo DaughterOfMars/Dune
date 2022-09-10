@@ -1,9 +1,11 @@
+use std::collections::HashSet;
+
 use bevy::prelude::*;
 use iyes_loopless::prelude::*;
 use renet::RenetClient;
 
 use crate::{
-    game::state::GameState,
+    game::state::{GameEvent, PlayerId},
     network::{connect_to_server, spawn_server, SendEvent, ServerEvent},
     tear_down, Screen,
 };
@@ -17,10 +19,13 @@ impl Plugin for MenuPlugin {
             .add_enter_system(Screen::Host, tear_down.chain(init_host_menu))
             .add_enter_system(Screen::Join, tear_down.chain(init_client_menu))
             .add_system(button.run_not_in_state(Screen::Game))
-            .add_system(
-                server_client_list
+            .add_system_set(
+                ConditionSet::new()
                     .run_not_in_state(Screen::Game)
-                    .run_not_in_state(Screen::MainMenu),
+                    .run_not_in_state(Screen::MainMenu)
+                    .with_system(update_server_list)
+                    .with_system(server_client_list)
+                    .into(),
             )
             .add_system(start_game.run_if_resource_added::<StartGameMarker>());
     }
@@ -150,8 +155,8 @@ fn init_main_menu(mut commands: Commands, asset_server: Res<AssetServer>, button
         });
 }
 
-#[derive(Component)]
-struct ServerList;
+#[derive(Default, Component)]
+struct ServerList(HashSet<PlayerId>);
 
 fn init_host_menu(mut commands: Commands, asset_server: Res<AssetServer>, button_colors: Res<ButtonColors>) {
     commands
@@ -175,7 +180,7 @@ fn init_host_menu(mut commands: Commands, asset_server: Res<AssetServer>, button
                         color: Color::BLACK,
                     },
                 ))
-                .insert(ServerList);
+                .insert(ServerList::default());
         });
     commands
         .spawn_bundle(NodeBundle {
@@ -258,7 +263,7 @@ fn init_client_menu(mut commands: Commands, asset_server: Res<AssetServer>, butt
                         color: Color::BLACK,
                     },
                 ))
-                .insert(ServerList);
+                .insert(ServerList::default());
         });
     commands
         .spawn_bundle(NodeBundle {
@@ -305,15 +310,32 @@ fn init_client_menu(mut commands: Commands, asset_server: Res<AssetServer>, butt
         });
 }
 
-fn server_client_list(mut list: Query<&mut Text, With<ServerList>>, game_state: Res<GameState>) {
-    if game_state.is_changed() {
-        if let Ok(mut list) = list.get_single_mut() {
-            let mut s = "Joined Users:".to_string();
-            for player_id in game_state.unpicked_players.iter() {
-                s += "\n";
-                s += player_id.0.to_string().as_str();
+fn update_server_list(mut game_events: EventReader<GameEvent>, mut list: Query<&mut ServerList>) {
+    for event in game_events.iter() {
+        match event {
+            GameEvent::PlayerJoined { player_id } => {
+                if let Ok(mut list) = list.get_single_mut() {
+                    list.0.insert(*player_id);
+                }
             }
-            list.sections[0].value = s;
+            GameEvent::PlayerDisconnected { player_id } => {
+                if let Ok(mut list) = list.get_single_mut() {
+                    list.0.remove(player_id);
+                }
+            }
+            _ => (),
         }
+    }
+}
+
+fn server_client_list(mut list: Query<(&mut Text, &ServerList), Changed<ServerList>>) {
+    if let Ok((mut list, ServerList(players))) = list.get_single_mut() {
+        let mut s = "Joined Users:".to_string();
+        // TODO: Fix this
+        for player_id in players.iter() {
+            s += "\n";
+            s += player_id.0.to_string().as_str();
+        }
+        list.sections[0].value = s;
     }
 }

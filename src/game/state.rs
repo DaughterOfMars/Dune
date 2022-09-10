@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use bevy::prelude::info;
 use derive_more::{Display, From};
-use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 
 use super::{Object, ObjectId};
@@ -27,14 +27,7 @@ pub struct Player {
     pub offworld_forces: HashSet<Object<Troop>>,
     pub shipped: bool,
     pub tanks: TleilaxuTanks,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prompt: Option<Prompt>,
     pub bonuses: HashSet<Bonus>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UnpickedPlayer {
-    pub prompt: Option<Prompt>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -142,12 +135,17 @@ pub enum GameEvent {
     SetPlayOrder {
         play_order: Vec<PlayerId>,
     },
-    DealCards {
+    DealCard {
         player_id: PlayerId,
         from: DeckType,
-        count: usize,
     },
-    ShuffleDeck {
+    DiscardCard {
+        player_id: PlayerId,
+        card_id: ObjectId,
+        to: DeckType,
+    },
+    SetDeckOrder {
+        deck_order: Vec<ObjectId>,
         deck_type: DeckType,
     },
     ChooseFaction {
@@ -240,9 +238,10 @@ pub struct GameState {
     pub game_turn: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_player: Option<PlayerId>,
-    pub unpicked_players: HashMap<PlayerId, UnpickedPlayer>,
     pub players: HashMap<PlayerId, Player>,
     pub play_order: Vec<PlayerId>,
+    pub factions: HashMap<Faction, PlayerId>,
+    pub prompts: HashMap<PlayerId, Prompt>,
     pub decks: Decks,
     pub board: HashMap<Location, LocationState>,
     pub storm_sector: u8,
@@ -263,9 +262,7 @@ impl EventReduce for GameState {
             Pass => self.play_order.len() == self.players.len(),
             ChooseFaction { .. } => {
                 if matches!(self.phase, Phase::Setup(SetupPhase::ChooseFactions)) {
-                    if let Some(ref player_id) = self.active_player {
-                        return self.unpicked_players.contains_key(player_id);
-                    }
+                    return self.active_player.is_some();
                 }
                 false
             }
@@ -280,10 +277,10 @@ impl EventReduce for GameState {
                 false
             }
             MakeFactionPrediction { faction } => {
-                matches!(self.phase, Phase::Setup(SetupPhase::Prediction))
+                matches!(self.phase, Phase::Setup(SetupPhase::Prediction)) && self.factions.contains_key(&Faction::BeneGesserit)
                     && self.players.values().find(|p| p.faction == *faction).is_some()
             }
-            MakeTurnPrediction { turn } => matches!(self.phase, Phase::Setup(SetupPhase::Prediction)) && *turn < 15,
+            MakeTurnPrediction { turn } => matches!(self.phase, Phase::Setup(SetupPhase::Prediction)) && self.factions.contains_key(&Faction::BeneGesserit) && *turn < 15,
             Bribe {
                 player_id,
                 other_player_id,
@@ -302,9 +299,11 @@ impl EventReduce for GameState {
 
             // These events should only be created by the server, and are always invalid if coming from a client
             ShowPrompt { .. }
-            | DealCards { .. }
+            | DealCard { .. }
+            // TODO: there may be situations where clients can send this event
+            | DiscardCard { .. }
             | SetActive { .. }
-            | ShuffleDeck { .. }
+            | SetDeckOrder { .. }
             | EndGame { .. }
             | PlayerJoined { .. }
             | PlayerDisconnected { .. }
@@ -321,7 +320,7 @@ impl EventReduce for GameState {
     fn consume(&mut self, event: Self::Event) {
         use GameEvent::*;
         match &event {
-            PlayerDisconnected { .. } => (),
+            PlayerJoined { .. } | PlayerDisconnected { .. } => (),
             _ => {
                 self.history.push_back(event.clone());
                 if self.history.len() > 10 {
@@ -333,20 +332,12 @@ impl EventReduce for GameState {
             EndGame { .. } => {
                 self.phase = Phase::EndGame;
             }
-            PlayerJoined { player_id } => {
-                self.unpicked_players.insert(player_id, Default::default());
-            }
+            PlayerJoined { .. } => {}
             PlayerDisconnected { player_id } => {
-                self.unpicked_players.remove(&player_id);
                 self.players.remove(&player_id);
             }
             ShowPrompt { prompt, player_id } => {
-                self.players
-                    .get_mut(&player_id)
-                    .map(|p| &mut p.prompt)
-                    .or(self.unpicked_players.get_mut(&player_id).map(|p| &mut p.prompt))
-                    .unwrap()
-                    .replace(prompt);
+                self.prompts.insert(player_id, prompt);
             }
             AdvancePhase => {
                 self.phase = self.phase.next();
@@ -381,19 +372,53 @@ impl EventReduce for GameState {
             SetPlayOrder { play_order } => {
                 self.play_order = play_order;
             }
-            ShuffleDeck { deck_type } => {
-                let mut rng = rand::thread_rng();
-                match deck_type {
-                    DeckType::Traitor => self.decks.traitor.cards.shuffle(&mut rng),
-                    DeckType::Treachery => self.decks.treachery.cards.shuffle(&mut rng),
-                    DeckType::Storm => self.decks.storm.cards.shuffle(&mut rng),
-                    DeckType::Spice => self.decks.spice.cards.shuffle(&mut rng),
+            SetDeckOrder { deck_order, deck_type } => match deck_type {
+                DeckType::Traitor => {
+                    let mut map = self
+                        .decks
+                        .traitor
+                        .cards
+                        .drain(..)
+                        .map(|card| (card.id, card))
+                        .collect::<HashMap<_, _>>();
+                    self.decks.traitor.cards = deck_order.iter().filter_map(|id| map.remove(id)).collect();
                 }
-            }
+                DeckType::Treachery => {
+                    let mut map = self
+                        .decks
+                        .treachery
+                        .cards
+                        .drain(..)
+                        .map(|card| (card.id, card))
+                        .collect::<HashMap<_, _>>();
+                    self.decks.treachery.cards = deck_order.iter().filter_map(|id| map.remove(id)).collect();
+                }
+                DeckType::Storm => {
+                    let mut map = self
+                        .decks
+                        .storm
+                        .cards
+                        .drain(..)
+                        .map(|card| (card.id, card))
+                        .collect::<HashMap<_, _>>();
+                    self.decks.storm.cards = deck_order.iter().filter_map(|id| map.remove(id)).collect();
+                }
+                DeckType::Spice => {
+                    let mut map = self
+                        .decks
+                        .spice
+                        .cards
+                        .drain(..)
+                        .map(|card| (card.id, card))
+                        .collect::<HashMap<_, _>>();
+                    self.decks.spice.cards = deck_order.iter().filter_map(|id| map.remove(id)).collect();
+                }
+            },
             ChooseFaction { faction } => {
                 let player_id = self.active_player.unwrap();
-                self.unpicked_players.remove(&player_id);
+                self.players.remove(&player_id);
                 let faction_data = &self.data.factions[&faction];
+                self.factions.insert(faction, player_id);
                 self.players.insert(
                     player_id,
                     Player {
@@ -405,35 +430,19 @@ impl EventReduce for GameState {
                         offworld_forces: Default::default(),
                         shipped: Default::default(),
                         tanks: Default::default(),
-                        prompt: Default::default(),
                         bonuses: Default::default(),
                     },
                 );
             }
-            ChooseTraitor { player_id, card_id } => {
-                let player = self.players.get_mut(&player_id).unwrap();
-                player
-                    .traitor_cards
-                    .drain_filter(|card| card.id != card_id)
-                    .for_each(|card| self.decks.traitor.discard.push(card));
-                player.prompt.take();
+            ChooseTraitor { player_id, .. } => {
+                self.prompts.remove(&player_id);
             }
             MakeFactionPrediction { faction } => {
-                self.players
-                    .values_mut()
-                    .find(|p| p.faction == Faction::BeneGesserit)
-                    .unwrap()
-                    .prompt
-                    .take();
+                self.prompts.remove(&self.factions[&Faction::BeneGesserit]);
                 self.bg_predictions.faction.replace(faction);
             }
             MakeTurnPrediction { turn } => {
-                self.players
-                    .values_mut()
-                    .find(|p| p.faction == Faction::BeneGesserit)
-                    .unwrap()
-                    .prompt
-                    .take();
+                self.prompts.remove(&self.factions[&Faction::BeneGesserit]);
                 self.bg_predictions.turn.replace(turn);
             }
             SetActive { player_id } => {
@@ -602,21 +611,35 @@ impl EventReduce for GameState {
                 leader,
                 treachery_cards,
             } => todo!(),
-            DealCards { player_id, from, count } => {
+            DealCard { player_id, from } => {
                 let player = self.players.get_mut(&player_id).unwrap();
                 match from {
                     DeckType::Traitor => {
-                        for _ in 0..count {
-                            if let Some(card) = self.decks.traitor.cards.pop() {
-                                player.traitor_cards.insert(card);
-                            }
+                        if let Some(card) = self.decks.traitor.cards.pop() {
+                            info!("Dealt {} to {}", card, player_id);
+                            player.traitor_cards.insert(card);
                         }
                     }
                     DeckType::Treachery => {
-                        for _ in 0..count {
-                            if let Some(card) = self.decks.treachery.cards.pop() {
-                                player.treachery_cards.insert(card);
-                            }
+                        if let Some(card) = self.decks.treachery.cards.pop() {
+                            info!("Dealt {} to {}", card, player_id);
+                            player.treachery_cards.insert(card);
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            DiscardCard { player_id, card_id, to } => {
+                let player = self.players.get_mut(&player_id).unwrap();
+                match to {
+                    DeckType::Traitor => {
+                        if let Some(card) = player.traitor_cards.take(&card_id) {
+                            self.decks.traitor.discard.push(card);
+                        }
+                    }
+                    DeckType::Treachery => {
+                        if let Some(card) = player.treachery_cards.take(&card_id) {
+                            self.decks.treachery.discard.push(card);
                         }
                     }
                     _ => unreachable!(),

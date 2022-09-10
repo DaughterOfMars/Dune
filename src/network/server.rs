@@ -1,13 +1,12 @@
 use std::collections::HashSet;
 
-use bevy::ecs::system::Spawn;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
 use super::*;
 use crate::{
-    components::{Faction, Leader, TraitorCard, TreacheryCard, Troop},
+    components::{Faction, Leader, TraitorCard, Troop},
     game::{
         state::{DeckType, Prompt, SpawnType},
         Object, ObjectIdGenerator, Phase, SetupPhase,
@@ -28,7 +27,8 @@ pub enum ServerEvent {
 
 pub struct Server {
     renet_server: renet::RenetServer,
-    game_state: GameState,
+    state: GameState,
+    waiting_players: HashSet<PlayerId>,
     ready_players: HashSet<PlayerId>,
     ids: ObjectIdGenerator,
 }
@@ -38,78 +38,118 @@ impl Server {
     fn game_logic(&mut self, last_event: GameEvent) -> Result<(), RenetNetworkingError> {
         use GameEvent::*;
         match last_event {
-            AdvancePhase => match &self.game_state.phase {
+            AdvancePhase => match &self.state.phase {
                 Phase::Setup(s) => match s {
                     SetupPhase::ChooseFactions => {
                         // TODO: Perhaps allow other ways to determine play order
-                        let mut play_order = self.game_state.unpicked_players.keys().copied().collect::<Vec<_>>();
+                        let mut play_order = self.ready_players.drain().collect::<Vec<_>>();
                         let mut rng = rand::thread_rng();
                         play_order.shuffle(&mut rng);
-                        self.consume(SetPlayOrder { play_order })?;
-                        self.consume(SetActive {
-                            player_id: self.game_state.play_order[0],
+                        self.generate(SetPlayOrder { play_order })?;
+                        self.generate(SetActive {
+                            player_id: self.state.play_order[0],
                         })?;
-                        self.consume(ShowPrompt {
-                            player_id: self.game_state.play_order[0],
+                        self.generate(ShowPrompt {
+                            player_id: self.state.play_order[0],
                             prompt: Prompt::Faction,
                         })?;
                     }
                     SetupPhase::Prediction => {
-                        if let Some(bg_player) = self
-                            .game_state
-                            .players
-                            .iter()
-                            .find(|(_, p)| p.faction == Faction::BeneGesserit)
-                            .map(|(id, _)| *id)
-                        {
-                            self.consume(SetActive { player_id: bg_player })?;
-                            self.consume(ShowPrompt {
+                        if let Some(bg_player) = self.state.factions.get(&Faction::BeneGesserit).copied() {
+                            self.generate(SetActive { player_id: bg_player })?;
+                            self.generate(ShowPrompt {
                                 player_id: bg_player,
                                 prompt: Prompt::FactionPrediction,
                             })?;
                         } else {
-                            self.consume(AdvancePhase)?;
+                            self.generate(AdvancePhase)?;
                         }
                     }
                     SetupPhase::AtStart => {
-                        for card in self.game_state.data.treachery_deck.clone() {
+                        for card in self.state.data.treachery_deck.clone() {
                             let card = self.spawn(card);
-                            self.consume(SpawnObject {
+                            self.generate(SpawnObject {
                                 spawn_type: SpawnType::TreacheryCard(card),
                             })?;
                         }
                         for leader in Leader::iter() {
-                            let faction = self.game_state.data.leaders[&leader].faction;
-                            if self.game_state.players.values().any(|p| p.faction == faction) {
+                            let faction = self.state.data.leaders[&leader].faction;
+                            if self.state.factions.contains_key(&faction) {
                                 let card = self.spawn(TraitorCard { leader });
-                                self.consume(SpawnObject {
+                                self.generate(SpawnObject {
                                     spawn_type: SpawnType::TraitorCard(card),
                                 })?;
                             }
                         }
-                        self.consume(ShuffleDeck {
+                        let mut rng = rand::thread_rng();
+                        let mut deck_order = self
+                            .state
+                            .decks
+                            .traitor
+                            .cards
+                            .iter()
+                            .map(|card| card.id)
+                            .collect::<Vec<_>>();
+                        deck_order.shuffle(&mut rng);
+                        self.generate(SetDeckOrder {
+                            deck_order,
                             deck_type: DeckType::Traitor,
                         })?;
-                        self.consume(ShuffleDeck {
+                        let mut deck_order = self
+                            .state
+                            .decks
+                            .treachery
+                            .cards
+                            .iter()
+                            .map(|card| card.id)
+                            .collect::<Vec<_>>();
+                        deck_order.shuffle(&mut rng);
+                        self.generate(SetDeckOrder {
+                            deck_order,
                             deck_type: DeckType::Treachery,
                         })?;
-                        self.consume(AdvancePhase)?;
+                        self.generate(AdvancePhase)?;
                     }
                     SetupPhase::DealTraitors => {
-                        // TODO
+                        for player_id in std::iter::repeat(self.state.play_order.clone()).take(4).flatten() {
+                            self.generate(DealCard {
+                                player_id,
+                                from: DeckType::Traitor,
+                            })?;
+                        }
+                        for player_id in self.state.play_order.clone() {
+                            if !matches!(self.state.players[&player_id].faction, Faction::Harkonnen) {
+                                self.generate(ShowPrompt {
+                                    player_id,
+                                    prompt: Prompt::Traitor,
+                                })?;
+                            }
+                        }
                     }
                     SetupPhase::PlaceForces => {
                         // Clients should handle this part
                     }
                     SetupPhase::DealTreachery => {
-                        // TODO
+                        for player_id in self.state.play_order.clone() {
+                            self.generate(DealCard {
+                                player_id,
+                                from: DeckType::Treachery,
+                            })?;
+                        }
+                        // Harkonnen gets two
+                        if let Some(hk_player) = self.state.factions.get(&Faction::Harkonnen).copied() {
+                            self.generate(DealCard {
+                                player_id: hk_player,
+                                from: DeckType::Treachery,
+                            })?;
+                        }
                     }
                 },
                 _ => (),
             },
             ChooseFaction { faction } => {
                 for leader in self
-                    .game_state
+                    .state
                     .data
                     .leaders
                     .clone()
@@ -117,54 +157,67 @@ impl Server {
                     .filter_map(|(leader, data)| (data.faction == faction).then_some(leader))
                 {
                     let leader = self.spawn(leader);
-                    self.consume(SpawnObject {
+                    self.generate(SpawnObject {
                         spawn_type: SpawnType::Leader {
-                            player_id: self.game_state.active_player.unwrap(),
+                            player_id: self.state.active_player.unwrap(),
                             leader,
                         },
                     })?;
                 }
                 for unit in std::iter::repeat_with(|| Troop { is_special: false })
-                    .take(20 - self.game_state.data.factions[&faction].special_forces as usize)
+                    .take(20 - self.state.data.factions[&faction].special_forces as usize)
                     .chain(
                         std::iter::repeat_with(|| Troop { is_special: true })
-                            .take(self.game_state.data.factions[&faction].special_forces as usize),
+                            .take(self.state.data.factions[&faction].special_forces as usize),
                     )
                 {
                     let unit = self.spawn(unit);
-                    self.consume(SpawnObject {
+                    self.generate(SpawnObject {
                         spawn_type: SpawnType::Troop {
-                            player_id: self.game_state.active_player.unwrap(),
+                            player_id: self.state.active_player.unwrap(),
                             unit,
                         },
                     })?;
                 }
-                self.consume(Pass)?;
-                if self.game_state.unpicked_players.is_empty() {
-                    self.consume(AdvancePhase)?;
+                self.generate(Pass)?;
+                if self.state.players.len() == self.state.play_order.len() {
+                    self.generate(AdvancePhase)?;
                 } else {
-                    self.consume(ShowPrompt {
-                        player_id: self.game_state.active_player.unwrap(),
+                    self.generate(ShowPrompt {
+                        player_id: self.state.active_player.unwrap(),
                         prompt: Prompt::Faction,
                     })?;
                 }
             }
-            ChooseTraitor { .. } => {
-                if self.game_state.players.values().all(|p| p.prompt.is_none()) {
-                    self.consume(AdvancePhase)?;
+            ChooseTraitor { player_id, card_id } => {
+                // Discard the cards that weren't picked
+                for card_id in self.state.players[&player_id]
+                    .traitor_cards
+                    .iter()
+                    .filter_map(|card| (card.id != card_id).then_some(card.id))
+                    .collect::<Vec<_>>()
+                {
+                    self.generate(DiscardCard {
+                        player_id,
+                        card_id,
+                        to: DeckType::Traitor,
+                    })?;
+                }
+                if self.state.prompts.is_empty() {
+                    self.generate(AdvancePhase)?;
                 }
             }
             MakeFactionPrediction { .. } => {
-                self.consume(ShowPrompt {
-                    player_id: self.game_state.active_player.unwrap(),
+                self.generate(ShowPrompt {
+                    player_id: self.state.active_player.unwrap(),
                     prompt: Prompt::TurnPrediction,
                 })?;
             }
             MakeTurnPrediction { .. } => {
-                self.consume(SetActive {
-                    player_id: self.game_state.play_order[0],
+                self.generate(SetActive {
+                    player_id: self.state.play_order[0],
                 })?;
-                self.consume(AdvancePhase)?;
+                self.generate(AdvancePhase)?;
             }
             _ => (),
         }
@@ -172,9 +225,9 @@ impl Server {
     }
 
     /// Consume an event and broadcast it to all clients.
-    fn consume(&mut self, event: GameEvent) -> Result<(), RenetNetworkingError> {
+    fn generate(&mut self, event: GameEvent) -> Result<(), RenetNetworkingError> {
         let serialized_event = bincode::serialize(&event)?;
-        self.game_state.consume(event.clone());
+        self.state.consume(event.clone());
         self.renet_server.broadcast_message(0, serialized_event);
         self.game_logic(event)?;
         Ok(())
@@ -186,25 +239,28 @@ impl Server {
         while let Some(event) = self.renet_server.get_event() {
             match event {
                 renet::ServerEvent::ClientConnected(id, ..) => {
+                    self.waiting_players.insert(id.into());
                     let event = GameEvent::PlayerJoined { player_id: id.into() };
                     // Tell the recently joined player about the other players
-                    for player_id in self.game_state.unpicked_players.keys() {
+                    for player_id in self.waiting_players.iter() {
                         let event = GameEvent::PlayerJoined { player_id: *player_id };
                         self.renet_server.send_message(id, 0, bincode::serialize(&event)?);
                     }
 
                     // Add the new player to the game
-                    self.consume(event)?;
+                    self.generate(event)?;
 
                     info!("Client {} connected.", id);
                 }
                 renet::ServerEvent::ClientDisconnected(id) => {
-                    // First consume a disconnect event
-                    self.consume(GameEvent::PlayerDisconnected { player_id: id.into() })?;
+                    let player_id = id.into();
+                    self.waiting_players.remove(&player_id);
+                    self.ready_players.remove(&player_id);
+                    self.generate(GameEvent::PlayerDisconnected { player_id })?;
                     info!("Client {} disconnected", id);
 
                     // Then end the game
-                    self.consume(GameEvent::EndGame {
+                    self.generate(GameEvent::EndGame {
                         reason: EndGameReason::PlayerLeft { player_id: id.into() },
                     })?;
 
@@ -220,24 +276,28 @@ impl Server {
                 if let Ok(event) = bincode::deserialize::<ServerEvent>(&message) {
                     match &event {
                         ServerEvent::LoadAssets | ServerEvent::StartGame => {
-                            if self.game_state.unpicked_players.len() < 2 {
+                            if self.waiting_players.len() + self.ready_players.len() < 2 {
                                 warn!("Player {} sent invalid event:\n\t{:#?}", client_id, event);
                                 continue;
                             }
                         }
                     }
                     if let ServerEvent::StartGame = &event {
-                        self.ready_players.insert(client_id.into());
-                        if self.ready_players.len() == self.game_state.unpicked_players.len() {
-                            self.consume(GameEvent::AdvancePhase)?;
+                        if let Some(player_id) = self.waiting_players.take(&client_id.into()) {
+                            self.ready_players.insert(player_id);
+                            if self.waiting_players.len() == 0 {
+                                self.generate(GameEvent::AdvancePhase)?;
+                            }
+                        } else {
+                            warn!("Player {} sent invalid event:\n\t{:#?}", client_id, event);
                         }
                     }
                     let serialized_event = bincode::serialize(&event)?;
                     self.renet_server.broadcast_message(0, serialized_event);
                 } else if let Ok(event) = bincode::deserialize::<GameEvent>(&message) {
-                    if self.game_state.validate(&event) {
+                    if self.state.validate(&event) {
                         trace!("Player {} sent:\n\t{:#?}", client_id, event);
-                        self.consume(event)?;
+                        self.generate(event)?;
                     } else {
                         warn!("Player {} sent invalid event:\n\t{:#?}", client_id, event);
                     }
@@ -276,7 +336,8 @@ fn server() -> Result<(), RenetNetworkingError> {
 
     let mut server = Server {
         renet_server,
-        game_state,
+        state: game_state,
+        waiting_players: Default::default(),
         ready_players: Default::default(),
         ids: Default::default(),
     };

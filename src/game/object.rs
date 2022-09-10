@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, collections::HashMap, hash::Hash};
+use std::{borrow::Borrow, collections::HashMap, fmt::Display, hash::Hash};
 
 use bevy::prelude::{Component, Entity};
 use derive_more::{Display, From};
@@ -20,6 +20,12 @@ impl ObjectId {
 pub struct Object<T> {
     pub id: ObjectId,
     pub inner: T,
+}
+
+impl<T: Display> Display for Object<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "id: {}, inner: {}", self.id, self.inner)
+    }
 }
 
 impl<T> PartialEq for Object<T> {
@@ -87,5 +93,6 @@ impl ObjectIdGenerator {
 
 #[derive(Clone, Debug, Default)]
 pub struct ObjectEntityMap {
-    pub map: HashMap<ObjectId, Entity>,
+    pub world: HashMap<ObjectId, Entity>,
+    pub ui: HashMap<ObjectId, Entity>,
 }

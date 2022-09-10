@@ -1,4 +1,7 @@
+use std::fmt::Display;
+
 use bevy::{math::Vec3, prelude::Component};
+use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use strum::EnumIter;
 
@@ -40,11 +43,6 @@ impl SpiceNode {
         }
     }
 }
-#[derive(Component)]
-pub struct Deck;
-
-#[derive(Component)]
-pub struct Card;
 
 #[derive(Component)]
 pub struct CanRespond;
@@ -59,7 +57,7 @@ pub struct TurnPredictionCard {
     pub turn: u8,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component, EnumIter)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Display, Component, EnumIter)]
 pub enum Faction {
     Atreides,
     Harkonnen,
@@ -82,7 +80,7 @@ impl Faction {
     }
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component, EnumIter)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Display, Component, EnumIter)]
 pub enum Leader {
     GurneyHalleck,
     ThufirHawat,
@@ -116,7 +114,7 @@ pub enum Leader {
     StabanTuek,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component, EnumIter)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Display, Component, EnumIter)]
 pub enum Location {
     Arrakeen,
     Arsunt,
@@ -162,7 +160,7 @@ pub enum Location {
     PolarSink,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display, Hash, Component)]
 pub enum Terrain {
     Sand,
     Rock,
@@ -170,7 +168,7 @@ pub enum Terrain {
     PolarSink,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display, Hash, Component)]
 pub enum Bonus {
     Carryalls,
     Ornothopters,
@@ -178,7 +176,7 @@ pub enum Bonus {
     Harvesters,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display, Hash, Component)]
 pub enum CardEffect {
     Worthless,
     PoisonWeapon,
@@ -195,7 +193,7 @@ pub enum CardEffect {
     WeatherControl,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display, Hash)]
 pub enum TreacheryCardKind {
     Lasgun,
     Chrysknife,
@@ -229,7 +227,13 @@ pub struct TreacheryCard {
     pub variant: usize,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
+impl Display for TreacheryCard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "kind: {}, variant: {}", self.kind, self.variant)
+    }
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display, Hash, Component)]
 pub enum SpiceCard {
     BrokenLand,
     CielagoNorth,
@@ -249,22 +253,22 @@ pub enum SpiceCard {
     ShaiHalud,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display, Hash, Component)]
 pub struct FactionPredictionCard {
     pub faction: Faction,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display, Hash, Component)]
 pub struct FactionChoiceCard {
     pub faction: Faction,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Display, Component)]
 pub struct TraitorCard {
     pub leader: Leader,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Hash, Component)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display, Hash, Component)]
 pub struct StormCard {
     pub val: u8,
 }

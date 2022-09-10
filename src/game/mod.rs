@@ -8,7 +8,6 @@ use std::hash::Hash;
 use bevy::prelude::*;
 use bevy_mod_picking::PickingEvent;
 use iyes_loopless::prelude::{AppLooplessStateExt, ConditionSet};
-use rand::prelude::SliceRandom;
 use serde::{Deserialize, Serialize};
 
 use self::systems::*;
@@ -20,9 +19,7 @@ pub use self::{
     },
 };
 use crate::{
-    components::{Deck, FactionChoiceCard, FactionPredictionCard, LocationSector, TraitorCard, TurnPredictionCard},
-    lerper::Lerp,
-    util::card_jitter,
+    components::{FactionChoiceCard, FactionPredictionCard, LocationSector, TraitorCard, TurnPredictionCard},
     Screen,
 };
 
@@ -40,10 +37,17 @@ impl Plugin for GamePlugin {
             .add_event::<PickedEvent<TraitorCard>>()
             .add_event::<PickedEvent<LocationSector>>();
 
-        app.add_system_set(
+        app.add_system_set_to_stage(
+            CoreStage::PreUpdate,
             ConditionSet::new()
                 .run_in_state(Screen::Game)
                 .with_system(spawn_object)
+                .into(),
+        );
+
+        app.add_system_set(
+            ConditionSet::new()
+                .run_in_state(Screen::Game)
                 .with_system(hiararchy_picker::<FactionChoiceCard>)
                 .with_system(hiararchy_picker::<FactionPredictionCard>)
                 .with_system(hiararchy_picker::<TurnPredictionCard>)
@@ -51,8 +55,10 @@ impl Plugin for GamePlugin {
                 .with_system(hiararchy_picker::<LocationSector>)
                 .with_system(phase_text)
                 .with_system(active_player_text)
-                .with_system(shuffle)
                 .with_system(shuffle_traitors)
+                .with_system(ship_troop_input)
+                .with_system(ship_forces)
+                .with_system(discard_card)
                 .into(),
         );
 
@@ -121,32 +127,6 @@ fn reset() {
     todo!()
 }
 
-#[derive(Component)]
-pub struct Shuffling(pub usize);
-
-pub fn shuffle(
-    mut commands: Commands,
-    mut decks: Query<(Entity, &Children, &mut Shuffling), With<Deck>>,
-    lerps: Query<&Lerp>,
-) {
-    let mut rng = rand::thread_rng();
-    for (e, children, mut shuffling) in decks.iter_mut() {
-        if children.iter().any(|c| lerps.get(*c).is_ok()) {
-            shuffling.0 -= 1;
-            if shuffling.0 == 0 {
-                commands.entity(e).remove::<Shuffling>();
-            }
-            continue;
-        }
-        let mut cards = children.iter().enumerate().collect::<Vec<_>>();
-        cards.shuffle(&mut rng);
-        for (i, card) in cards {
-            let transform = Transform::from_translation(Vec3::Y * 0.001 * (i as f32)) * card_jitter();
-            commands.entity(*card).insert(Lerp::world_to(transform, 0.2, 0.0));
-        }
-    }
-}
-
 pub struct PickedEvent<T> {
     pub picked: Entity,
     pub inner: T,
@@ -164,10 +144,10 @@ fn hiararchy_picker<T: Component + Clone>(
             if let PickingEvent::Clicked(clicked) = event {
                 let mut clicked = *clicked;
                 loop {
-                    if let Ok(card) = pickables.get(clicked) {
+                    if let Ok(inner) = pickables.get(clicked) {
                         picked_events.send(PickedEvent {
                             picked: clicked,
-                            inner: card.clone(),
+                            inner: inner.clone(),
                         });
                         return;
                     } else {

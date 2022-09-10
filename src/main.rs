@@ -288,7 +288,8 @@ fn init_scene(
                         .insert(LocationSector {
                             location: *location,
                             sector,
-                        });
+                        })
+                        .insert_bundle(PickableBundle::default());
                 }
             });
 

@@ -11,10 +11,10 @@ use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
 use crate::{
-    components::{Card, Faction, FactionChoiceCard, FactionPredictionCard, Spice, TurnPredictionCard},
+    components::{Faction, FactionChoiceCard, FactionPredictionCard, Spice, TraitorCard, TurnPredictionCard},
     game::{
         state::{GameEvent, GameState, PlayerId, Prompt},
-        ObjectEntityMap, PickedEvent,
+        ObjectEntityMap, ObjectId, Phase, PickedEvent,
     },
     lerper::{InterpolationFunction, Lerp, UITransform},
     network::SendEvent,
@@ -37,6 +37,7 @@ impl Plugin for SetupPlugin {
                 .with_system(faction_prediction)
                 .with_system(turn_prediction)
                 .with_system(prompt_traitors)
+                .with_system(pick_traitor)
                 .into(),
         );
     }
@@ -81,7 +82,7 @@ fn prompt_factions(
                         let node = game_state.data.prediction_nodes.factions[i];
 
                         commands
-                            .spawn_bundle((Card, FactionChoiceCard { faction }))
+                            .spawn_bundle((FactionChoiceCard { faction },))
                             .insert(
                                 Lerp::ui_from_to(
                                     UITransform::default().with_rotation(Quat::from_rotation_x(PI / 2.0)),
@@ -252,7 +253,7 @@ fn prompt_predictions(
                         let node = game_state.data.prediction_nodes.factions[i];
 
                         commands
-                            .spawn_bundle((Card, FactionPredictionCard { faction }))
+                            .spawn_bundle((FactionPredictionCard { faction },))
                             .insert(
                                 Lerp::ui_from_to(
                                     UITransform::default().with_rotation(Quat::from_rotation_x(PI / 2.0)),
@@ -387,9 +388,9 @@ fn positions(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for event in game_events.iter() {
-        if matches!(event, GameEvent::ChooseFaction { .. }) && game_state.unpicked_players.is_empty() {
+        if matches!(event, GameEvent::AdvancePhase) && matches!(game_state.phase, Phase::Setup(SetupPhase::AtStart)) {
             for (i, turn) in game_state.play_order.iter().enumerate() {
-                let faction = game_state.players.get(turn).unwrap().faction;
+                let faction = game_state.players[turn].faction;
                 let little_token = asset_server.get_handle("little_token.gltf#Mesh0/Primitive0");
                 let logo_texture = asset_server.get_handle(format!("tokens/{}_logo.png", faction.code()).as_str());
                 commands
@@ -414,34 +415,80 @@ fn prompt_traitors(
     object_entity: Res<ObjectEntityMap>,
 ) {
     for event in game_events.iter() {
-        match event {
-            GameEvent::ShowPrompt {
-                player_id,
-                prompt: Prompt::Traitor,
-            } => {
-                if *my_id == *player_id {
-                    let nodes = [vec2(-0.6, 0.0), vec2(-0.2, 0.0), vec2(0.2, 0.0), vec2(0.6, 0.0)];
-                    for (i, (card, node)) in game_state
-                        .players
-                        .get(player_id)
-                        .unwrap()
-                        .traitor_cards
-                        .iter()
-                        .zip(nodes)
-                        .enumerate()
-                    {
-                        commands
-                            .entity(*object_entity.map.get(&card.id).unwrap())
-                            .insert(Lerp::world_to_ui(
-                                UITransform::from(node).with_rotation(Quat::from_rotation_x(PI / 2.0)),
-                                0.5,
-                                0.03 * i as f32,
-                            ))
-                            .insert_bundle(PickableBundle::default());
-                    }
+        if let GameEvent::ShowPrompt {
+            player_id,
+            prompt: Prompt::Traitor,
+        } = event
+        {
+            if *my_id == *player_id {
+                let nodes = [vec2(-0.6, 0.0), vec2(-0.2, 0.0), vec2(0.2, 0.0), vec2(0.6, 0.0)];
+                for (i, (card, node)) in game_state
+                    .players
+                    .get(player_id)
+                    .unwrap()
+                    .traitor_cards
+                    .iter()
+                    .zip(nodes)
+                    .enumerate()
+                {
+                    commands.entity(object_entity.world[&card.id]).insert(Lerp::world_to_ui(
+                        UITransform::from(node).with_rotation(Quat::from_rotation_x(PI / 2.0)),
+                        0.5,
+                        0.03 * i as f32,
+                    ));
                 }
             }
-            _ => (),
         }
     }
 }
+
+fn pick_traitor(
+    mut client: ResMut<RenetClient>,
+    mut picked_events: EventReader<PickedEvent<TraitorCard>>,
+    cards: Query<&ObjectId, With<TraitorCard>>,
+    my_id: Res<PlayerId>,
+) {
+    for PickedEvent { picked, inner: _ } in picked_events.iter() {
+        client.send_event(GameEvent::ChooseTraitor {
+            player_id: *my_id,
+            card_id: *cards.get(*picked).unwrap(),
+        });
+    }
+}
+
+// TODO maybe validate this on the server and always make these spaces pickable
+// fn enable_force_positions(
+//     mut commands: Commands,
+//     game_state: Res<GameState>,
+//     mut game_events: EventReader<GameEvent>,
+//     locations: Query<(Entity, &LocationSector)>,
+//     my_id: Res<PlayerId>,
+//     mut client: ResMut<RenetClient>,
+// ) {
+//     for event in game_events.iter() {
+//         if let GameEvent::AdvancePhase | GameEvent::Pass = event {
+//             if matches!(game_state.phase, Phase::Setup(SetupPhase::PlaceForces))
+//                 && Some(*my_id) == game_state.active_player
+//             {
+//                 let faction = game_state.players[&my_id].faction;
+//                 let faction_data = &game_state.data.factions[&faction];
+//                 if faction_data.starting_values.units > 0 {
+//                     if let Some(possible_locations) = faction_data.starting_values.possible_locations.as_ref() {
+//                         for (entity, _) in locations
+//                             .iter()
+//                             .filter(|(_, l)| possible_locations.contains(&l.location))
+//                         {
+//                             commands.entity(entity).insert_bundle(PickableBundle::default());
+//                         }
+//                     } else {
+//                         for (entity, _) in locations.iter() {
+//                             commands.entity(entity).insert_bundle(PickableBundle::default());
+//                         }
+//                     }
+//                 } else {
+//                     client.send_event(GameEvent::Pass);
+//                 }
+//             }
+//         }
+//     }
+// }
