@@ -70,10 +70,6 @@ fn main() {
 
     app.add_plugin(RenetClientPlugin)
         .add_plugin(RenetNetworkingPlugin)
-        .add_plugin(GameInputPlugin)
-        .add_plugin(GamePlugin)
-        .add_plugin(LerpPlugin)
-        .add_plugin(MenuPlugin)
         .add_plugins(DefaultPickingPlugins);
 
     app.add_startup_system(init_camera);
@@ -82,6 +78,11 @@ fn main() {
     app.add_enter_system(Screen::Loading, tear_down.chain(init_loading_game));
     app.add_system(load_game.run_in_state(Screen::Loading));
     app.add_enter_system(Screen::Game, tear_down.chain(init_scene));
+
+    app.add_plugin(GamePlugin)
+        .add_plugin(MenuPlugin)
+        .add_plugin(GameInputPlugin)
+        .add_plugin(LerpPlugin);
 
     app.run();
 }
@@ -214,30 +215,6 @@ fn init_scene(
         })
         .insert_bundle(PickableBundle::default())
         .insert(game_state.data.camera_nodes.board);
-
-    commands
-        .spawn_bundle(TextBundle {
-            style: Style {
-                position_type: PositionType::Absolute,
-                position: UiRect {
-                    top: Val::Px(5.0),
-                    left: Val::Px(5.0),
-                    ..default()
-                },
-                ..default()
-            },
-            text: Text::from_section(
-                "Test",
-                TextStyle {
-                    font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                    font_size: 40.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ),
-            ..default()
-        })
-        .insert(PhaseText);
 
     commands
         .spawn_bundle(TextBundle {

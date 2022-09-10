@@ -1,113 +1,20 @@
+mod data;
+
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use bevy::prelude::info;
 use derive_more::{Display, From};
 use serde::{Deserialize, Serialize};
 
+pub use self::data::*;
 use super::{Object, ObjectId};
 use crate::{
     components::{
         Bonus, Faction, Leader, Location, LocationSector, SpiceCard, StormCard, TraitorCard, TreacheryCard, Troop,
     },
     data::{Data, SpiceLocationData},
-    game::{Phase, SetupPhase},
+    game::phase::{setup::SetupPhase, Phase},
 };
-
-#[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Serialize, Deserialize, Hash, From, Display)]
-#[repr(transparent)]
-pub struct PlayerId(pub u64);
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Player {
-    pub faction: Faction,
-    pub treachery_cards: HashSet<Object<TreacheryCard>>,
-    pub traitor_cards: HashSet<Object<TraitorCard>>,
-    pub spice: u8,
-    pub living_leaders: HashMap<Object<Leader>, bool>,
-    pub offworld_forces: HashSet<Object<Troop>>,
-    pub shipped: bool,
-    pub tanks: TleilaxuTanks,
-    pub bonuses: HashSet<Bonus>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Deck<C> {
-    pub cards: Vec<Object<C>>,
-    pub discard: Vec<Object<C>>,
-}
-
-impl<C> Default for Deck<C> {
-    fn default() -> Self {
-        Self {
-            cards: Default::default(),
-            discard: Default::default(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Decks {
-    pub traitor: Deck<TraitorCard>,
-    pub treachery: Deck<TreacheryCard>,
-    pub storm: Deck<StormCard>,
-    pub spice: Deck<SpiceCard>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DeckType {
-    Traitor,
-    Treachery,
-    Storm,
-    Spice,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TleilaxuTanks {
-    pub leaders: HashSet<Object<Leader>>,
-    pub forces: HashSet<Object<Troop>>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Forces {
-    pub forces: HashSet<Object<Troop>>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SectorState {
-    pub forces: HashMap<PlayerId, Forces>,
-    pub spice: u8,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LocationState {
-    pub sectors: HashMap<u8, SectorState>,
-    pub worm: Option<ObjectId>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum EndGameReason {
-    PlayerLeft { player_id: PlayerId },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SpawnType {
-    Leader {
-        player_id: PlayerId,
-        leader: Object<Leader>,
-    },
-    Troop {
-        player_id: PlayerId,
-        unit: Object<Troop>,
-    },
-    TraitorCard(Object<TraitorCard>),
-    TreacheryCard(Object<TreacheryCard>),
-    SpiceCard(Object<SpiceCard>),
-    StormCard(Object<StormCard>),
-    Worm {
-        location: Location,
-        id: ObjectId,
-    },
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GameEvent {
@@ -124,6 +31,7 @@ pub enum GameEvent {
         player_id: PlayerId,
     },
     Pass,
+    StartRound,
     AdvancePhase,
     SpawnObject {
         spawn_type: SpawnType,
@@ -199,72 +107,19 @@ pub enum GameEvent {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Bid {
-    pub player_id: PlayerId,
-    pub spice: u8,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BidState {
-    pub card: Object<TreacheryCard>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub current_bid: Option<Bid>,
-    pub passed: HashSet<PlayerId>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Prompt {
-    Faction,
-    Traitor,
-    FactionPrediction,
-    TurnPrediction,
-    GuildShip,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct BeneGesseritPredictions {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub faction: Option<Faction>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub turn: Option<u8>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct GameState {
-    pub phase: Phase,
-    pub game_turn: u8,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_player: Option<PlayerId>,
-    pub players: HashMap<PlayerId, Player>,
-    pub play_order: Vec<PlayerId>,
-    pub factions: HashMap<Faction, PlayerId>,
-    pub prompts: HashMap<PlayerId, Prompt>,
-    pub decks: Decks,
-    pub board: HashMap<Location, LocationState>,
-    pub storm_sector: u8,
-    pub bidding_cards: Vec<BidState>,
-    pub nexus: bool,
-    pub bg_predictions: BeneGesseritPredictions,
-    pub history: VecDeque<GameEvent>,
-    #[serde(skip)]
-    pub data: Data,
-}
-
 impl EventReduce for GameState {
     type Event = GameEvent;
 
     fn validate(&self, event: &Self::Event) -> bool {
         use GameEvent::*;
         match event {
-            Pass => self.play_order.len() == self.players.len(),
+            Pass => {
+                return self.play_order.len() == self.players.len();
+            }
             ChooseFaction { .. } => {
                 if matches!(self.phase, Phase::Setup(SetupPhase::ChooseFactions)) {
                     return self.active_player.is_some();
                 }
-                false
             }
             ChooseTraitor { player_id, card_id } => {
                 if matches!(self.phase, Phase::Setup(SetupPhase::DealTraitors)) {
@@ -274,47 +129,82 @@ impl EventReduce for GameState {
                         }
                     }
                 }
-                false
             }
             MakeFactionPrediction { faction } => {
-                matches!(self.phase, Phase::Setup(SetupPhase::Prediction)) && self.factions.contains_key(&Faction::BeneGesserit)
-                    && self.players.values().find(|p| p.faction == *faction).is_some()
+                return matches!(self.phase, Phase::Setup(SetupPhase::Prediction))
+                    && self.factions.contains_key(&Faction::BeneGesserit)
+                    && self.players.values().find(|p| p.faction == *faction).is_some();
             }
-            MakeTurnPrediction { turn } => matches!(self.phase, Phase::Setup(SetupPhase::Prediction)) && self.factions.contains_key(&Faction::BeneGesserit) && *turn < 15,
+            MakeTurnPrediction { turn } => {
+                return matches!(self.phase, Phase::Setup(SetupPhase::Prediction))
+                    && self.factions.contains_key(&Faction::BeneGesserit)
+                    && *turn < 15;
+            }
             Bribe {
                 player_id,
                 other_player_id,
                 spice,
-            } => todo!(),
-            ShipForces { to, forces } => todo!(),
-            MoveForces { path, forces } => todo!(),
-            MakeBid { spice } => todo!(),
-            Revive { forces, leader } => todo!(),
+            } => {
+                todo!()
+            }
+            ShipForces { to, forces } => {
+                if let Some(player_id) = &self.active_player {
+                    let player = &self.players[player_id];
+                    if forces.iter().all(|id| player.offworld_forces.contains(id)) {
+                        if matches!(self.phase, Phase::Setup(SetupPhase::PlaceForces)) {
+                            if let Some(possible_locations) =
+                                &self.data.factions[&player.faction].starting_values.possible_locations
+                            {
+                                if possible_locations.contains(&to.location) {
+                                    return true;
+                                }
+                            } else {
+                                return true;
+                            }
+                        } else {
+                            // TODO: validate ship n' move
+                        }
+                    }
+                }
+            }
+            MoveForces { path, forces } => {
+                todo!()
+            }
+            MakeBid { spice } => {
+                todo!()
+            }
+            Revive { forces, leader } => {
+                todo!()
+            }
             SetBattlePlan {
                 player,
                 forces,
                 leader,
                 treachery_cards,
-            } => todo!(),
+            } => {
+                todo!()
+            }
 
             // These events should only be created by the server, and are always invalid if coming from a client
-            ShowPrompt { .. }
-            | DealCard { .. }
+            ShowPrompt { .. } => (),
+            DealCard { .. } => (),
             // TODO: there may be situations where clients can send this event
-            | DiscardCard { .. }
-            | SetActive { .. }
-            | SetDeckOrder { .. }
-            | EndGame { .. }
-            | PlayerJoined { .. }
-            | PlayerDisconnected { .. }
-            | SetPlayOrder { .. }
-            | AdvancePhase
-            | StartBidding
-            | AdvanceStorm { .. }
-            | SpiceBlow
-            | CollectSpice { .. }
-            | SpawnObject { .. } => false,
+            DiscardCard { .. } => (),
+            SetActive { .. } => (),
+            SetDeckOrder { .. } => (),
+            EndGame { .. } => (),
+            PlayerJoined { .. } => (),
+            PlayerDisconnected { .. } => (),
+            SetPlayOrder { .. } => (),
+            AdvancePhase => (),
+            StartBidding => (),
+            AdvanceStorm { .. } => (),
+            SpiceBlow => (),
+            CollectSpice { .. } => (),
+            SpawnObject { .. } => (),
+            StartRound => (),
         }
+        false
     }
 
     fn consume(&mut self, event: Self::Event) {
@@ -341,6 +231,7 @@ impl EventReduce for GameState {
             }
             AdvancePhase => {
                 self.phase = self.phase.next();
+                self.active_player.take();
             }
             SpawnObject { spawn_type } => match spawn_type {
                 SpawnType::Leader { player_id, leader } => {
@@ -433,6 +324,7 @@ impl EventReduce for GameState {
                         bonuses: Default::default(),
                     },
                 );
+                self.prompts.remove(&player_id);
             }
             ChooseTraitor { player_id, .. } => {
                 self.prompts.remove(&player_id);
@@ -449,12 +341,17 @@ impl EventReduce for GameState {
                 self.active_player.replace(player_id);
             }
             Pass => {
-                if let Some(active_player) = self.active_player.as_mut() {
-                    let current_turn = self.play_order.iter().position(|id| active_player == id).unwrap();
-                    *active_player = self.play_order[(current_turn + 1) % self.play_order.len()];
-                } else {
-                    self.active_player.replace(self.play_order[0]);
+                if let Some(player_id) = &self.active_player {
+                    let current_turn = self.play_order.iter().position(|id| player_id == id).unwrap();
+                    if current_turn + 1 == self.play_order.len() {
+                        self.active_player.take();
+                    } else {
+                        self.active_player.replace(self.play_order[current_turn + 1]);
+                    }
                 }
+            }
+            StartRound => {
+                self.active_player.replace(self.play_order[0]);
             }
             CollectSpice { player_id, spice, from } => {
                 if let Some(from) = from {

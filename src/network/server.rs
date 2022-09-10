@@ -8,8 +8,9 @@ use super::*;
 use crate::{
     components::{Faction, Leader, TraitorCard, Troop},
     game::{
+        phase::{setup::SetupPhase, Phase},
         state::{DeckType, Prompt, SpawnType},
-        Object, ObjectIdGenerator, Phase, SetupPhase,
+        Object, ObjectIdGenerator,
     },
 };
 
@@ -46,13 +47,7 @@ impl Server {
                         let mut rng = rand::thread_rng();
                         play_order.shuffle(&mut rng);
                         self.generate(SetPlayOrder { play_order })?;
-                        self.generate(SetActive {
-                            player_id: self.state.play_order[0],
-                        })?;
-                        self.generate(ShowPrompt {
-                            player_id: self.state.play_order[0],
-                            prompt: Prompt::Faction,
-                        })?;
+                        self.generate(StartRound)?;
                     }
                     SetupPhase::Prediction => {
                         if let Some(bg_player) = self.state.factions.get(&Faction::BeneGesserit).copied() {
@@ -127,7 +122,7 @@ impl Server {
                         }
                     }
                     SetupPhase::PlaceForces => {
-                        // Clients should handle this part
+                        self.generate(StartRound)?;
                     }
                     SetupPhase::DealTreachery => {
                         for player_id in self.state.play_order.clone() {
@@ -143,7 +138,42 @@ impl Server {
                                 from: DeckType::Treachery,
                             })?;
                         }
+                        self.generate(AdvancePhase)?;
                     }
+                },
+                _ => (),
+            },
+            StartRound | Pass => match self.state.phase {
+                Phase::Setup(s) => match s {
+                    SetupPhase::ChooseFactions => {
+                        if let Some(player_id) = self.state.active_player {
+                            self.generate(ShowPrompt {
+                                player_id,
+                                prompt: Prompt::Faction,
+                            })?;
+                        } else {
+                            self.generate(AdvancePhase)?;
+                        }
+                    }
+                    SetupPhase::DealTraitors => {
+                        if self.state.prompts.is_empty() {
+                            self.generate(AdvancePhase)?;
+                        }
+                    }
+                    SetupPhase::PlaceForces => {
+                        if let Some(player_id) = self.state.active_player {
+                            if self.state.data.factions[&self.state.players[&player_id].faction]
+                                .starting_values
+                                .units
+                                == 0
+                            {
+                                self.generate(Pass)?;
+                            }
+                        } else {
+                            self.generate(AdvancePhase)?;
+                        }
+                    }
+                    _ => (),
                 },
                 _ => (),
             },
@@ -180,14 +210,6 @@ impl Server {
                     })?;
                 }
                 self.generate(Pass)?;
-                if self.state.players.len() == self.state.play_order.len() {
-                    self.generate(AdvancePhase)?;
-                } else {
-                    self.generate(ShowPrompt {
-                        player_id: self.state.active_player.unwrap(),
-                        prompt: Prompt::Faction,
-                    })?;
-                }
             }
             ChooseTraitor { player_id, card_id } => {
                 // Discard the cards that weren't picked
@@ -203,9 +225,7 @@ impl Server {
                         to: DeckType::Traitor,
                     })?;
                 }
-                if self.state.prompts.is_empty() {
-                    self.generate(AdvancePhase)?;
-                }
+                self.generate(Pass)?;
             }
             MakeFactionPrediction { .. } => {
                 self.generate(ShowPrompt {
@@ -214,10 +234,20 @@ impl Server {
                 })?;
             }
             MakeTurnPrediction { .. } => {
-                self.generate(SetActive {
-                    player_id: self.state.play_order[0],
-                })?;
                 self.generate(AdvancePhase)?;
+            }
+            ShipForces { .. } => {
+                if matches!(self.state.phase, Phase::Setup(SetupPhase::PlaceForces)) {
+                    if let Some(player_id) = &self.state.active_player {
+                        let player = &self.state.players[player_id];
+                        let faction_data = &self.state.data.factions[&player.faction];
+                        if player.offworld_forces.len() == 20 - faction_data.starting_values.units as usize {
+                            self.generate(Pass)?;
+                        }
+                    }
+                } else {
+                    // TODO: shipping during ship n' move
+                }
             }
             _ => (),
         }

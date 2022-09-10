@@ -5,16 +5,18 @@ use bevy::{
     prelude::*,
 };
 use bevy_mod_picking::PickableBundle;
+use derive_more::Display;
 use iyes_loopless::prelude::ConditionSet;
 use renet::RenetClient;
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
+use super::Phase;
 use crate::{
     components::{Faction, FactionChoiceCard, FactionPredictionCard, Spice, TraitorCard, TurnPredictionCard},
     game::{
         state::{GameEvent, GameState, PlayerId, Prompt},
-        ObjectEntityMap, ObjectId, Phase, PickedEvent,
+        ObjectEntityMap, ObjectId, PickedEvent,
     },
     lerper::{InterpolationFunction, Lerp, UITransform},
     network::SendEvent,
@@ -43,7 +45,7 @@ impl Plugin for SetupPlugin {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Display, Serialize, Deserialize)]
 pub enum SetupPhase {
     ChooseFactions,
     Prediction,
