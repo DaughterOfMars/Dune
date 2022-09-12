@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use super::{GameEvent, Object, ObjectId};
 use crate::{
     components::{Bonus, Faction, Leader, Location, SpiceCard, StormCard, TraitorCard, TreacheryCard, Troop},
-    data::Data,
     game::phase::Phase,
 };
 
@@ -34,9 +33,8 @@ pub struct GameState {
     pub bidding_cards: Vec<BidState>,
     pub nexus: bool,
     pub bg_predictions: BeneGesseritPredictions,
+    pub storm_card: Option<Object<StormCard>>,
     pub history: VecDeque<GameEvent>,
-    #[serde(skip)]
-    pub data: Data,
 }
 
 #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Serialize, Deserialize, Hash, From, Display)]
@@ -90,15 +88,55 @@ pub struct BeneGesseritPredictions {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Deck<C> {
-    pub cards: Vec<Object<C>>,
-    pub discard: Vec<Object<C>>,
+    pub cards: HashSet<Object<C>>,
+    pub card_order: Vec<ObjectId>,
+    pub discards: HashSet<Object<C>>,
+    pub discard_order: Vec<ObjectId>,
+}
+
+impl<C> Deck<C> {
+    pub fn add(&mut self, card: Object<C>) {
+        self.card_order.push(card.id);
+        self.cards.insert(card);
+    }
+
+    pub fn peek(&self) -> Option<&Object<C>> {
+        self.card_order.last().and_then(|id| self.cards.get(id))
+    }
+
+    pub fn draw(&mut self) -> Option<Object<C>> {
+        if let Some(id) = self.card_order.pop() {
+            self.cards.take(&id)
+        } else {
+            None
+        }
+    }
+
+    pub fn get(&self, id: ObjectId) -> Option<&Object<C>> {
+        self.cards.get(&id).or(self.discards.get(&id))
+    }
+
+    pub fn last_discarded(&self) -> Option<&Object<C>> {
+        self.discard_order.last().and_then(|id| self.discards.get(id))
+    }
+
+    pub fn discard(&mut self, card: Object<C>) {
+        self.discard_order.push(card.id);
+        self.discards.insert(card);
+    }
+
+    pub fn set_order(&mut self, order: Vec<ObjectId>) {
+        self.card_order = order;
+    }
 }
 
 impl<C> Default for Deck<C> {
     fn default() -> Self {
         Self {
             cards: Default::default(),
-            discard: Default::default(),
+            card_order: Default::default(),
+            discards: Default::default(),
+            discard_order: Default::default(),
         }
     }
 }
@@ -114,13 +152,13 @@ pub struct Decks {
 impl Decks {
     fn is_empty(&self) -> bool {
         self.traitor.cards.is_empty()
-            && self.traitor.discard.is_empty()
+            && self.traitor.discards.is_empty()
             && self.treachery.cards.is_empty()
-            && self.treachery.discard.is_empty()
+            && self.treachery.discards.is_empty()
             && self.storm.cards.is_empty()
-            && self.storm.discard.is_empty()
+            && self.storm.discards.is_empty()
             && self.spice.cards.is_empty()
-            && self.spice.discard.is_empty()
+            && self.spice.discards.is_empty()
     }
 }
 

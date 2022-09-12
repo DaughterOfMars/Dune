@@ -17,6 +17,7 @@ use self::{
 };
 use crate::{
     components::{FactionChoiceCard, FactionPredictionCard, LocationSector, TraitorCard, Troop, TurnPredictionCard},
+    data::Data,
     lerper::{Lerp, Lerper, UITransform},
     network::{GameEvents, SendEvent},
     util::hand_positions,
@@ -69,9 +70,9 @@ impl Plugin for GamePlugin {
     }
 }
 
-fn consume_events(game_events: Res<GameEvents>, mut game_state: ResMut<GameState>) {
+fn consume_events(data: Res<Data>, game_events: Res<GameEvents>, mut game_state: ResMut<GameState>) {
     if let Some(event) = game_events.peek().cloned() {
-        game_state.consume(event);
+        game_state.consume(&data, event);
     }
 }
 
@@ -134,6 +135,7 @@ fn spawn_object(
     game_events: Res<GameEvents>,
     mut commands: Commands,
     game_state: Res<GameState>,
+    data: Res<Data>,
     mut object_entity: ResMut<ObjectEntityMap>,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -150,12 +152,12 @@ fn spawn_object(
             } => {
                 if *my_id == *player_id {
                     let big_token = asset_server.get_handle("big_token.gltf#Mesh0/Primitive0");
-                    let texture = asset_server
-                        .get_handle(format!("leaders/{}.png", game_state.data.leaders[&leader].texture).as_str());
+                    let texture =
+                        asset_server.get_handle(format!("leaders/{}.png", data.leaders[&leader].texture).as_str());
                     let entity = commands
                         .spawn_bundle(SpatialBundle::from_transform(Transform::from_translation(
                             // TODO: Stack them somehow
-                            game_state.data.token_nodes.leaders[0],
+                            data.token_nodes.leaders[0],
                         )))
                         .insert_bundle(PickableBundle::default())
                         .insert_bundle((*leader, *object_id))
@@ -186,7 +188,7 @@ fn spawn_object(
                     let entity = commands
                         .spawn_bundle(SpatialBundle::from_transform(Transform::from_translation(
                             // TODO: Stack them somehow
-                            game_state.data.token_nodes.fighters[0], // + (i as f32 * 0.0036 * Vec3::Y)
+                            data.token_nodes.fighters[0], // + (i as f32 * 0.0036 * Vec3::Y)
                         )))
                         .insert_bundle(PickableBundle::default())
                         .insert_bundle((*unit, *object_id))
@@ -210,11 +212,7 @@ fn spawn_object(
                 let card_back = asset_server.get_handle("card.gltf#Mesh0/Primitive1");
 
                 let traitor_front_texture = asset_server.get_handle(
-                    format!(
-                        "traitor/traitor_{}.png",
-                        game_state.data.leaders[&card.leader].texture.as_str()
-                    )
-                    .as_str(),
+                    format!("traitor/traitor_{}.png", data.leaders[&card.leader].texture.as_str()).as_str(),
                 );
 
                 let traitor_back_texture = asset_server.get_handle("traitor/traitor_back.png");
@@ -256,7 +254,7 @@ fn spawn_object(
                 let treachery_front_texture = asset_server.get_handle(
                     format!(
                         "treachery/treachery_{}.png",
-                        game_state.data.treachery_cards[&card.kind].textures[card.variant]
+                        data.treachery_cards[&card.kind].textures[card.variant]
                     )
                     .as_str(),
                 );
@@ -297,8 +295,8 @@ fn spawn_object(
                 let card_face = asset_server.get_handle("card.gltf#Mesh0/Primitive0");
                 let card_back = asset_server.get_handle("card.gltf#Mesh0/Primitive1");
 
-                let spice_front_texture = asset_server
-                    .get_handle(format!("spice/spice_{}.png", game_state.data.spice_cards[&card].texture).as_str());
+                let spice_front_texture =
+                    asset_server.get_handle(format!("spice/spice_{}.png", data.spice_cards[&card].texture).as_str());
                 let spice_back_texture = asset_server.get_handle("spice/spice_back.png");
 
                 let entity = commands
@@ -443,12 +441,13 @@ fn ship_troop_input(
 fn ship_forces(
     game_events: Res<GameEvents>,
     game_state: Res<GameState>,
+    data: Res<Data>,
     object_entity: Res<ObjectEntityMap>,
     mut troops: Query<&mut Lerper, With<Troop>>,
 ) {
     if let Some(GameEvent::ShipForces { to, forces }) = game_events.peek() {
         let idx = game_state.board[&to.location].sectors[&to.sector].forces.len();
-        let node = game_state.data.locations[&to.location].sectors[&to.sector].fighters[idx];
+        let node = data.locations[&to.location].sectors[&to.sector].fighters[idx];
         for entity in forces.iter().filter_map(|id| object_entity.world.get(id)) {
             if let Ok(mut lerper) = troops.get_mut(*entity) {
                 // TODO: stack
@@ -464,7 +463,6 @@ fn ship_forces(
 
 fn discard_card(
     game_events: Res<GameEvents>,
-    mut commands: Commands,
     object_entity: Res<ObjectEntityMap>,
     mut cards: Query<&mut Lerper>,
     my_id: Res<PlayerId>,

@@ -1,14 +1,15 @@
 use std::collections::HashSet;
 
-use rand::seq::SliceRandom;
+use rand::{seq::SliceRandom, Rng};
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
 use super::*;
 use crate::{
-    components::{Faction, Leader, TraitorCard, Troop},
+    components::{Faction, Leader, StormCard, TraitorCard, Troop},
+    data::Data,
     game::{
-        phase::{setup::SetupPhase, Phase},
+        phase::{setup::SetupPhase, storm::StormPhase, Phase},
         state::{DeckType, Prompt, SpawnType},
         Object, ObjectIdGenerator,
     },
@@ -29,6 +30,7 @@ pub enum ServerEvent {
 pub struct Server {
     renet_server: renet::RenetServer,
     state: GameState,
+    data: Data,
     waiting_players: HashSet<PlayerId>,
     ready_players: HashSet<PlayerId>,
     ids: ObjectIdGenerator,
@@ -61,14 +63,14 @@ impl Server {
                         }
                     }
                     SetupPhase::AtStart => {
-                        for card in self.state.data.treachery_deck.clone() {
+                        for card in self.data.treachery_deck.clone() {
                             let card = self.spawn(card);
                             self.generate(SpawnObject {
                                 spawn_type: SpawnType::TreacheryCard(card),
                             })?;
                         }
                         for leader in Leader::iter() {
-                            let faction = self.state.data.leaders[&leader].faction;
+                            let faction = self.data.leaders[&leader].faction;
                             if self.state.factions.contains_key(&faction) {
                                 let card = self.spawn(TraitorCard { leader });
                                 self.generate(SpawnObject {
@@ -76,6 +78,19 @@ impl Server {
                                 })?;
                             }
                         }
+                        for card in self.data.spice_cards.keys().cloned().collect::<Vec<_>>() {
+                            let card = self.spawn(card);
+                            self.generate(SpawnObject {
+                                spawn_type: SpawnType::SpiceCard(card),
+                            })?;
+                        }
+                        for card in (1..=6).map(|val| StormCard { val }) {
+                            let card = self.spawn(card);
+                            self.generate(SpawnObject {
+                                spawn_type: SpawnType::StormCard(card),
+                            })?;
+                        }
+
                         let mut rng = rand::thread_rng();
                         let mut deck_order = self
                             .state
@@ -90,6 +105,7 @@ impl Server {
                             deck_order,
                             deck_type: DeckType::Traitor,
                         })?;
+
                         let mut deck_order = self
                             .state
                             .decks
@@ -103,6 +119,35 @@ impl Server {
                             deck_order,
                             deck_type: DeckType::Treachery,
                         })?;
+
+                        let mut deck_order = self
+                            .state
+                            .decks
+                            .spice
+                            .cards
+                            .iter()
+                            .map(|card| card.id)
+                            .collect::<Vec<_>>();
+                        deck_order.shuffle(&mut rng);
+                        self.generate(SetDeckOrder {
+                            deck_order,
+                            deck_type: DeckType::Spice,
+                        })?;
+
+                        let mut deck_order = self
+                            .state
+                            .decks
+                            .storm
+                            .cards
+                            .iter()
+                            .map(|card| card.id)
+                            .collect::<Vec<_>>();
+                        deck_order.shuffle(&mut rng);
+                        self.generate(SetDeckOrder {
+                            deck_order,
+                            deck_type: DeckType::Storm,
+                        })?;
+
                         self.generate(AdvancePhase)?;
                     }
                     SetupPhase::DealTraitors => {
@@ -141,6 +186,38 @@ impl Server {
                         self.generate(AdvancePhase)?;
                     }
                 },
+                Phase::Storm(p) => match p {
+                    StormPhase::Reveal => {
+                        if self.state.game_turn > 0 {
+                            self.generate(RevealStorm)?;
+                        }
+                        self.generate(AdvancePhase)?;
+                    }
+                    StormPhase::WeatherControl => {
+                        if self.state.game_turn > 0 {
+                            // TODO allow players to play weather control
+                        }
+                        self.generate(AdvancePhase)?;
+                    }
+                    StormPhase::FamilyAtomics => {
+                        if self.state.game_turn > 0 {
+                            // TODO allow players to play family atomics
+                        }
+                        self.generate(AdvancePhase)?;
+                    }
+                    StormPhase::MoveStorm => {
+                        if self.state.game_turn == 0 {
+                            self.generate(MoveStorm {
+                                sectors: rand::thread_rng().gen_range(0..18),
+                            })?;
+                        } else {
+                            self.generate(MoveStorm {
+                                sectors: self.state.storm_card.as_ref().unwrap().inner.val,
+                            })?;
+                        }
+                        self.generate(AdvancePhase)?;
+                    }
+                },
                 _ => (),
             },
             StartRound | Pass => match self.state.phase {
@@ -166,7 +243,7 @@ impl Server {
                     }
                     SetupPhase::PlaceForces => {
                         if let Some(player_id) = self.state.active_player {
-                            if self.state.data.factions[&self.state.players[&player_id].faction]
+                            if self.data.factions[&self.state.players[&player_id].faction]
                                 .starting_values
                                 .units
                                 == 0
@@ -183,7 +260,6 @@ impl Server {
             },
             ChooseFaction { player_id, faction } => {
                 for leader in self
-                    .state
                     .data
                     .leaders
                     .clone()
@@ -196,10 +272,10 @@ impl Server {
                     })?;
                 }
                 for unit in std::iter::repeat_with(|| Troop { is_special: false })
-                    .take(20 - self.state.data.factions[&faction].special_forces as usize)
+                    .take(20 - self.data.factions[&faction].special_forces as usize)
                     .chain(
                         std::iter::repeat_with(|| Troop { is_special: true })
-                            .take(self.state.data.factions[&faction].special_forces as usize),
+                            .take(self.data.factions[&faction].special_forces as usize),
                     )
                 {
                     let unit = self.spawn(unit);
@@ -238,7 +314,7 @@ impl Server {
                 if matches!(self.state.phase, Phase::Setup(SetupPhase::PlaceForces)) {
                     if let Some(player_id) = &self.state.active_player {
                         let player = &self.state.players[player_id];
-                        let faction_data = &self.state.data.factions[&player.faction];
+                        let faction_data = &self.data.factions[&player.faction];
                         if player.offworld_forces.len() == 20 - faction_data.starting_values.units as usize {
                             self.generate(Pass)?;
                         }
@@ -255,7 +331,7 @@ impl Server {
     /// Consume an event and broadcast it to all clients.
     fn generate(&mut self, event: GameEvent) -> Result<(), RenetNetworkingError> {
         let serialized_event = bincode::serialize(&event)?;
-        self.state.consume(event.clone());
+        self.state.consume(&self.data, event.clone());
         self.renet_server.broadcast_message(0, serialized_event);
         self.game_logic(event)?;
         Ok(())
@@ -323,7 +399,7 @@ impl Server {
                     let serialized_event = bincode::serialize(&event)?;
                     self.renet_server.broadcast_message(0, serialized_event);
                 } else if let Ok(event) = bincode::deserialize::<GameEvent>(&message) {
-                    if self.state.validate(&event) {
+                    if self.state.validate(&self.data, &event) {
                         trace!("Player {} sent:\n\t{:#?}", client_id, event);
                         self.generate(event)?;
                     } else {
@@ -365,6 +441,7 @@ fn server() -> Result<(), RenetNetworkingError> {
     let mut server = Server {
         renet_server,
         state: game_state,
+        data: Default::default(),
         waiting_players: Default::default(),
         ready_players: Default::default(),
         ids: Default::default(),

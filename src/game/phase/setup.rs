@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use super::Phase;
 use crate::{
     components::{FactionChoiceCard, FactionPredictionCard, Spice, TraitorCard, TurnPredictionCard},
+    data::Data,
     game::{
         state::{GameEvent, GameState, PlayerId, Prompt},
         GameEventStage, ObjectEntityMap, ObjectId, PickedEvent, PlayerFactionText,
@@ -61,10 +62,10 @@ pub enum SetupPhase {
 
 fn prompt_factions(
     game_events: Res<GameEvents>,
+    data: Res<Data>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    game_state: Res<GameState>,
     my_id: Res<PlayerId>,
 ) {
     if let Some(GameEvent::ShowPrompt {
@@ -80,7 +81,7 @@ fn prompt_factions(
                 let prediction_front_texture =
                     asset_server.get_handle(format!("predictions/prediction_{}.png", faction.code()).as_str());
 
-                let node = game_state.data.prediction_nodes.factions[i];
+                let node = data.prediction_nodes.factions[i];
 
                 commands
                     .spawn_bundle((FactionChoiceCard { faction: *faction },))
@@ -141,6 +142,7 @@ fn faction_init(
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     game_state: Res<GameState>,
+    data: Res<Data>,
     my_id: Res<PlayerId>,
     mut text: Query<&mut Text, With<PlayerFactionText>>,
 ) {
@@ -161,7 +163,7 @@ fn faction_init(
                 .spawn_bundle(SpatialBundle::from_transform(Transform::from_translation(vec3(
                     0.0, 0.27, 1.34,
                 ))))
-                .insert(game_state.data.camera_nodes.shield)
+                .insert(data.camera_nodes.shield)
                 .with_children(|parent| {
                     parent
                         .spawn_bundle(PbrBundle {
@@ -188,7 +190,7 @@ fn faction_init(
             let spice_10_texture = asset_server.get_handle("tokens/spice_10.png");
             let spice_10_material = materials.add(StandardMaterial::from(spice_10_texture));
 
-            let spice = game_state.data.factions.get(&faction).unwrap().starting_values.spice;
+            let spice = data.factions.get(&faction).unwrap().starting_values.spice;
 
             let (tens, fives, twos, ones) = divide_spice(spice as i32);
             for (i, (value, s)) in (0..tens)
@@ -205,7 +207,7 @@ fn faction_init(
                 };
                 commands
                     .spawn_bundle(SpatialBundle::from_transform(Transform::from_translation(
-                        game_state.data.token_nodes.spice[s] + (i as f32 * 0.0036 * Vec3::Y),
+                        data.token_nodes.spice[s] + (i as f32 * 0.0036 * Vec3::Y),
                     )))
                     .insert_bundle(PickableBundle::default())
                     .insert(Spice { value })
@@ -225,6 +227,7 @@ fn prompt_predictions(
     game_events: Res<GameEvents>,
     mut commands: Commands,
     game_state: Res<GameState>,
+    data: Res<Data>,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     my_id: Res<PlayerId>,
@@ -242,7 +245,7 @@ fn prompt_predictions(
                         let prediction_front_texture =
                             asset_server.get_handle(format!("predictions/prediction_{}.png", faction.code()).as_str());
 
-                        let node = game_state.data.prediction_nodes.factions[i];
+                        let node = data.prediction_nodes.factions[i];
 
                         commands
                             .spawn_bundle((FactionPredictionCard { faction },))
@@ -285,7 +288,7 @@ fn prompt_predictions(
                             asset_server.get_handle(format!("predictions/prediction_t{}.png", turn).as_str());
 
                         let i = turn as usize - 1;
-                        let node = game_state.data.prediction_nodes.turns[i];
+                        let node = data.prediction_nodes.turns[i];
 
                         commands
                             .spawn_bundle(SpatialBundle::default())
@@ -367,6 +370,7 @@ fn positions(
     game_events: Res<GameEvents>,
     mut commands: Commands,
     game_state: Res<GameState>,
+    data: Res<Data>,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -379,7 +383,7 @@ fn positions(
             let logo_texture = asset_server.get_handle(format!("tokens/{}_logo.png", faction.code()).as_str());
             commands
                 .spawn_bundle(SpatialBundle::from_transform(Transform::from_translation(
-                    game_state.data.token_nodes.factions[i],
+                    data.token_nodes.factions[i],
                 )))
                 .insert_bundle(PbrBundle {
                     mesh: little_token.clone(),

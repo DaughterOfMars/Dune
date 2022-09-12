@@ -2,6 +2,8 @@ use bevy::prelude::*;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 
+use crate::network::GameEvents;
+
 pub struct StormPlugin;
 
 impl Plugin for StormPlugin {
@@ -17,3 +19,5 @@ pub enum StormPhase {
     FamilyAtomics,
     MoveStorm,
 }
+
+fn reveal(game_events: Res<GameEvents>) {}

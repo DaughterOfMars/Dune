@@ -3,8 +3,7 @@ use bevy_mod_picking::PickingEvent;
 use iyes_loopless::prelude::IntoConditionalSystem;
 
 use crate::{
-    data::CameraNode,
-    game::state::GameState,
+    data::{CameraNode, Data},
     lerper::{Lerp, Lerper},
     Screen,
 };
@@ -58,14 +57,10 @@ fn lookaround(
     }
 }
 
-fn camera_reset(
-    game_state: Res<GameState>,
-    keyboard_input: Res<Input<KeyCode>>,
-    mut camera: Query<&mut Lerper, With<Camera>>,
-) {
+fn camera_reset(data: Res<Data>, keyboard_input: Res<Input<KeyCode>>, mut camera: Query<&mut Lerper, With<Camera>>) {
     if keyboard_input.just_pressed(KeyCode::Escape) {
         if let Some(mut lerper) = camera.iter_mut().next() {
-            lerper.set_if_empty(Lerp::move_camera(game_state.data.camera_nodes.main, 1.0));
+            lerper.set_if_empty(Lerp::move_camera(data.camera_nodes.main, 1.0));
         }
     }
 }

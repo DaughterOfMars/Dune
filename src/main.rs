@@ -23,7 +23,7 @@ use bevy::{
 use bevy_editor_pls::EditorPlugin;
 use bevy_mod_picking::{DefaultPickingPlugins, PickableBundle, PickingCameraBundle};
 use bevy_renet::RenetClientPlugin;
-use game::state::GameState;
+use data::Data;
 use iyes_loopless::{
     prelude::{AppLooplessStateExt, IntoConditionalSystem},
     state::NextState,
@@ -60,7 +60,8 @@ fn main() {
     let mut app = App::new();
     app.insert_resource(Msaa { samples: 4 })
         .insert_resource(ClearColor(Color::BLACK))
-        .init_resource::<LoadingAssets>();
+        .init_resource::<LoadingAssets>()
+        .init_resource::<Data>();
 
     app.add_loopless_state(Screen::MainMenu);
 
@@ -191,7 +192,7 @@ fn load_game(
 
 fn init_scene(
     mut commands: Commands,
-    game_state: Res<GameState>,
+    data: Res<Data>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -216,7 +217,7 @@ fn init_scene(
             ..default()
         })
         .insert_bundle(PickableBundle::default())
-        .insert(game_state.data.camera_nodes.board);
+        .insert(data.camera_nodes.board);
 
     commands
         .spawn_bundle(TextBundle {
@@ -242,7 +243,7 @@ fn init_scene(
         })
         .insert(PlayerFactionText);
 
-    for (location, location_data) in game_state.data.locations.iter() {
+    for (location, location_data) in data.locations.iter() {
         commands
             .spawn_bundle(SpatialBundle::default())
             .insert(*location)

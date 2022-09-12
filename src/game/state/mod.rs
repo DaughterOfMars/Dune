@@ -1,6 +1,6 @@
 mod data;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
@@ -8,7 +8,7 @@ pub use self::data::*;
 use super::{Object, ObjectId};
 use crate::{
     components::{Faction, LocationSector, SpiceCard},
-    data::SpiceLocationData,
+    data::{Data, SpiceLocationData},
     game::phase::{setup::SetupPhase, Phase},
 };
 
@@ -84,7 +84,8 @@ pub enum GameEvent {
         path: Vec<LocationSector>,
         forces: HashSet<ObjectId>,
     },
-    AdvanceStorm {
+    RevealStorm,
+    MoveStorm {
         sectors: u8,
     },
     SpiceBlow,
@@ -107,7 +108,7 @@ pub enum GameEvent {
 impl EventReduce for GameState {
     type Event = GameEvent;
 
-    fn validate(&self, event: &Self::Event) -> bool {
+    fn validate(&self, data: &Data, event: &Self::Event) -> bool {
         use GameEvent::*;
         match event {
             Pass => {
@@ -150,7 +151,7 @@ impl EventReduce for GameState {
                     if forces.iter().all(|id| player.offworld_forces.contains(id)) {
                         if matches!(self.phase, Phase::Setup(SetupPhase::PlaceForces)) {
                             if let Some(possible_locations) =
-                                &self.data.factions[&player.faction].starting_values.possible_locations
+                                &data.factions[&player.faction].starting_values.possible_locations
                             {
                                 if possible_locations.contains(&to.location) {
                                     return true;
@@ -195,7 +196,8 @@ impl EventReduce for GameState {
             SetPlayOrder { .. } => (),
             AdvancePhase => (),
             StartBidding => (),
-            AdvanceStorm { .. } => (),
+            RevealStorm => (),
+            MoveStorm { .. } => (),
             SpiceBlow => (),
             CollectSpice { .. } => (),
             SpawnObject { .. } => (),
@@ -204,7 +206,7 @@ impl EventReduce for GameState {
         false
     }
 
-    fn consume(&mut self, event: Self::Event) {
+    fn consume(&mut self, data: &Data, event: Self::Event) {
         use GameEvent::*;
         match &event {
             PlayerJoined { .. } | PlayerDisconnected { .. } => (),
@@ -242,16 +244,16 @@ impl EventReduce for GameState {
                     self.players.get_mut(&player_id).unwrap().offworld_forces.insert(unit);
                 }
                 SpawnType::TraitorCard(card) => {
-                    self.decks.traitor.cards.push(card);
+                    self.decks.traitor.add(card);
                 }
                 SpawnType::TreacheryCard(card) => {
-                    self.decks.treachery.cards.push(card);
+                    self.decks.treachery.add(card);
                 }
                 SpawnType::SpiceCard(card) => {
-                    self.decks.spice.cards.push(card);
+                    self.decks.spice.add(card);
                 }
                 SpawnType::StormCard(card) => {
-                    self.decks.storm.cards.push(card);
+                    self.decks.storm.add(card);
                 }
                 SpawnType::Worm { location, id } => {
                     self.board.get_mut(&location).unwrap().worm.replace(id);
@@ -262,49 +264,21 @@ impl EventReduce for GameState {
             }
             SetDeckOrder { deck_order, deck_type } => match deck_type {
                 DeckType::Traitor => {
-                    let mut map = self
-                        .decks
-                        .traitor
-                        .cards
-                        .drain(..)
-                        .map(|card| (card.id, card))
-                        .collect::<HashMap<_, _>>();
-                    self.decks.traitor.cards = deck_order.iter().filter_map(|id| map.remove(id)).collect();
+                    self.decks.traitor.set_order(deck_order);
                 }
                 DeckType::Treachery => {
-                    let mut map = self
-                        .decks
-                        .treachery
-                        .cards
-                        .drain(..)
-                        .map(|card| (card.id, card))
-                        .collect::<HashMap<_, _>>();
-                    self.decks.treachery.cards = deck_order.iter().filter_map(|id| map.remove(id)).collect();
+                    self.decks.treachery.set_order(deck_order);
                 }
                 DeckType::Storm => {
-                    let mut map = self
-                        .decks
-                        .storm
-                        .cards
-                        .drain(..)
-                        .map(|card| (card.id, card))
-                        .collect::<HashMap<_, _>>();
-                    self.decks.storm.cards = deck_order.iter().filter_map(|id| map.remove(id)).collect();
+                    self.decks.storm.set_order(deck_order);
                 }
                 DeckType::Spice => {
-                    let mut map = self
-                        .decks
-                        .spice
-                        .cards
-                        .drain(..)
-                        .map(|card| (card.id, card))
-                        .collect::<HashMap<_, _>>();
-                    self.decks.spice.cards = deck_order.iter().filter_map(|id| map.remove(id)).collect();
+                    self.decks.spice.set_order(deck_order);
                 }
             },
             ChooseFaction { player_id, faction } => {
                 self.players.remove(&player_id);
-                let faction_data = &self.data.factions[&faction];
+                let faction_data = &data.factions[&faction];
                 self.factions.insert(faction, player_id);
                 self.players.insert(
                     player_id,
@@ -414,22 +388,28 @@ impl EventReduce for GameState {
                     .forces
                     .extend(forces);
             }
-            AdvanceStorm { sectors } => {
+            RevealStorm => {
+                self.storm_card.replace(self.decks.storm.draw().unwrap());
+            }
+            MoveStorm { sectors } => {
                 self.storm_sector = (self.storm_sector + sectors) % 18;
+                if let Some(storm_card) = self.storm_card.take() {
+                    self.decks.storm.add(storm_card);
+                }
             }
             SpiceBlow => {
                 let mut nexus = None;
                 loop {
-                    let card = self.decks.spice.cards.pop().unwrap();
+                    let card = self.decks.spice.draw().unwrap();
                     match card.inner {
                         SpiceCard::ShaiHalud => {
-                            nexus = self.decks.spice.discard.last();
+                            nexus = self.decks.spice.last_discarded().map(|card| card.id);
                         }
                         _ => {
-                            if let Some(nexus_card) = nexus {
+                            if let Some(nexus_card) = nexus.and_then(|id| self.decks.spice.get(id)) {
                                 self.nexus = true;
                                 let SpiceLocationData { location, .. } =
-                                    self.data.spice_cards[&nexus_card.inner].location_data.unwrap();
+                                    data.spice_cards[&nexus_card.inner].location_data.unwrap();
                                 for forces in self
                                     .board
                                     .get_mut(&location)
@@ -448,7 +428,7 @@ impl EventReduce for GameState {
                                 location,
                                 sector,
                                 spice,
-                            } = self.data.spice_cards[&card.inner].location_data.unwrap();
+                            } = data.spice_cards[&card.inner].location_data.unwrap();
                             if self.storm_sector != sector {
                                 self.board
                                     .entry(location)
@@ -458,7 +438,7 @@ impl EventReduce for GameState {
                                     .or_default()
                                     .spice += spice;
                             }
-                            self.decks.spice.discard.push(card);
+                            self.decks.spice.discard(card);
                             break;
                         }
                     }
@@ -466,7 +446,7 @@ impl EventReduce for GameState {
             }
             StartBidding => {
                 for _ in 0..self.players.len() {
-                    if let Some(card) = self.decks.treachery.cards.pop() {
+                    if let Some(card) = self.decks.treachery.draw() {
                         self.bidding_cards.push(BidState {
                             card,
                             current_bid: Default::default(),
@@ -508,12 +488,12 @@ impl EventReduce for GameState {
                 let player = self.players.get_mut(&player_id).unwrap();
                 match from {
                     DeckType::Traitor => {
-                        if let Some(card) = self.decks.traitor.cards.pop() {
+                        if let Some(card) = self.decks.traitor.draw() {
                             player.traitor_cards.insert(card);
                         }
                     }
                     DeckType::Treachery => {
-                        if let Some(card) = self.decks.treachery.cards.pop() {
+                        if let Some(card) = self.decks.treachery.draw() {
                             player.treachery_cards.insert(card);
                         }
                     }
@@ -525,12 +505,12 @@ impl EventReduce for GameState {
                 match to {
                     DeckType::Traitor => {
                         if let Some(card) = player.traitor_cards.take(&card_id) {
-                            self.decks.traitor.discard.push(card);
+                            self.decks.traitor.discard(card);
                         }
                     }
                     DeckType::Treachery => {
                         if let Some(card) = player.treachery_cards.take(&card_id) {
-                            self.decks.treachery.discard.push(card);
+                            self.decks.treachery.discard(card);
                         }
                     }
                     _ => unreachable!(),
@@ -543,7 +523,7 @@ impl EventReduce for GameState {
 pub trait EventReduce {
     type Event;
 
-    fn validate(&self, event: &Self::Event) -> bool;
+    fn validate(&self, data: &Data, event: &Self::Event) -> bool;
 
-    fn consume(&mut self, event: Self::Event);
+    fn consume(&mut self, data: &Data, event: Self::Event);
 }
