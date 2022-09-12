@@ -147,9 +147,13 @@ impl Server {
                 Phase::Setup(s) => match s {
                     SetupPhase::ChooseFactions => {
                         if let Some(player_id) = self.state.active_player {
+                            let mut remaining = Faction::iter().collect::<HashSet<_>>();
+                            for faction in self.state.factions.keys() {
+                                remaining.remove(faction);
+                            }
                             self.generate(ShowPrompt {
                                 player_id,
-                                prompt: Prompt::Faction,
+                                prompt: Prompt::Faction { remaining },
                             })?;
                         } else {
                             self.generate(AdvancePhase)?;
@@ -177,7 +181,7 @@ impl Server {
                 },
                 _ => (),
             },
-            ChooseFaction { faction } => {
+            ChooseFaction { player_id, faction } => {
                 for leader in self
                     .state
                     .data
@@ -188,10 +192,7 @@ impl Server {
                 {
                     let leader = self.spawn(leader);
                     self.generate(SpawnObject {
-                        spawn_type: SpawnType::Leader {
-                            player_id: self.state.active_player.unwrap(),
-                            leader,
-                        },
+                        spawn_type: SpawnType::Leader { player_id, leader },
                     })?;
                 }
                 for unit in std::iter::repeat_with(|| Troop { is_special: false })
@@ -203,10 +204,7 @@ impl Server {
                 {
                     let unit = self.spawn(unit);
                     self.generate(SpawnObject {
-                        spawn_type: SpawnType::Troop {
-                            player_id: self.state.active_player.unwrap(),
-                            unit,
-                        },
+                        spawn_type: SpawnType::Troop { player_id, unit },
                     })?;
                 }
                 self.generate(Pass)?;

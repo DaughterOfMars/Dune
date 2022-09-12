@@ -2,6 +2,7 @@ mod client;
 mod server;
 
 use std::{
+    collections::VecDeque,
     env::VarError,
     net::{AddrParseError, SocketAddr, UdpSocket},
     thread,
@@ -41,7 +42,7 @@ pub struct RenetNetworkingPlugin;
 impl Plugin for RenetNetworkingPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
         app.init_resource::<GameState>()
-            .add_event::<GameEvent>()
+            .init_resource::<GameEvents>()
             .add_event::<ServerEvent>()
             .add_event::<RenetServerExitedEvent>()
             .add_system(await_server.run_if_resource_exists::<RenetServer>())
@@ -72,10 +73,28 @@ fn await_server(
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct GameEvents {
+    queue: VecDeque<GameEvent>,
+}
+
+impl GameEvents {
+    pub fn push(&mut self, event: GameEvent) {
+        self.queue.push_back(event);
+    }
+
+    pub fn next(&mut self) -> Option<GameEvent> {
+        self.queue.pop_front()
+    }
+
+    pub fn peek(&self) -> Option<&GameEvent> {
+        self.queue.front()
+    }
+}
+
 fn process_server_events(
     mut client: ResMut<RenetClient>,
-    mut game_state: ResMut<GameState>,
-    mut game_events: EventWriter<GameEvent>,
+    mut game_events: ResMut<GameEvents>,
     mut server_events: EventWriter<ServerEvent>,
 ) {
     while let Some(message) = client.receive_message(0) {
@@ -83,9 +102,7 @@ fn process_server_events(
         if let Ok(event) = bincode::deserialize::<GameEvent>(&message) {
             trace!("{:#?}", event);
 
-            game_state.consume(event.clone());
-
-            game_events.send(event);
+            game_events.push(event);
         } else if let Ok(event) = bincode::deserialize::<ServerEvent>(&message) {
             trace!("{:#?}", event);
 

@@ -1538,6 +1538,7 @@ name = "dune"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bevy-inspector-egui",
  "bevy_editor_pls",
  "bevy_mod_picking",
  "bevy_renet",

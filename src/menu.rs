@@ -5,8 +5,11 @@ use iyes_loopless::prelude::*;
 use renet::RenetClient;
 
 use crate::{
-    game::state::{GameEvent, PlayerId},
-    network::{connect_to_server, spawn_server, SendEvent, ServerEvent},
+    game::{
+        state::{GameEvent, PlayerId},
+        GameEventStage,
+    },
+    network::{connect_to_server, spawn_server, GameEvents, SendEvent, ServerEvent},
     tear_down, Screen,
 };
 
@@ -23,11 +26,12 @@ impl Plugin for MenuPlugin {
                 ConditionSet::new()
                     .run_not_in_state(Screen::Game)
                     .run_not_in_state(Screen::MainMenu)
-                    .with_system(update_server_list)
                     .with_system(server_client_list)
                     .into(),
             )
             .add_system(start_game.run_if_resource_added::<StartGameMarker>());
+
+        app.add_system_to_stage(GameEventStage, update_server_list);
     }
 }
 
@@ -156,7 +160,7 @@ fn init_main_menu(mut commands: Commands, asset_server: Res<AssetServer>, button
 }
 
 #[derive(Default, Component)]
-struct ServerList(HashSet<PlayerId>);
+pub struct ServerList(HashSet<PlayerId>);
 
 fn init_host_menu(mut commands: Commands, asset_server: Res<AssetServer>, button_colors: Res<ButtonColors>) {
     commands
@@ -310,8 +314,8 @@ fn init_client_menu(mut commands: Commands, asset_server: Res<AssetServer>, butt
         });
 }
 
-fn update_server_list(mut game_events: EventReader<GameEvent>, mut list: Query<&mut ServerList>) {
-    for event in game_events.iter() {
+pub fn update_server_list(game_events: Res<GameEvents>, mut list: Query<&mut ServerList>) {
+    if let Some(event) = game_events.peek() {
         match event {
             GameEvent::PlayerJoined { player_id } => {
                 if let Ok(mut list) = list.get_single_mut() {

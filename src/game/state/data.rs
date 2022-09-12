@@ -1,4 +1,14 @@
-use super::*;
+use std::collections::{HashMap, HashSet, VecDeque};
+
+use derive_more::{Display, From};
+use serde::{Deserialize, Serialize};
+
+use super::{GameEvent, Object, ObjectId};
+use crate::{
+    components::{Bonus, Faction, Leader, Location, SpiceCard, StormCard, TraitorCard, TreacheryCard, Troop},
+    data::Data,
+    game::phase::Phase,
+};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -62,7 +72,7 @@ pub struct BidState {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Prompt {
-    Faction,
+    Faction { remaining: HashSet<Faction> },
     Traitor,
     FactionPrediction,
     TurnPrediction,

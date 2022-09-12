@@ -28,6 +28,7 @@ use iyes_loopless::{
     prelude::{AppLooplessStateExt, IntoConditionalSystem},
     state::NextState,
 };
+use lerper::{LerpUICamera, Lerper};
 use network::{SendEvent, ServerEvent};
 use renet::RenetClient;
 
@@ -101,7 +102,8 @@ fn init_camera(mut commands: Commands) {
             ..default()
         })
         .insert(UiCameraConfig::default())
-        .insert_bundle(PickingCameraBundle::default());
+        .insert_bundle(PickingCameraBundle::default())
+        .insert_bundle((Lerper::default(), LerpUICamera));
 }
 
 fn start_game(mut commands: Commands, mut server_events: EventReader<ServerEvent>) {
@@ -238,7 +240,7 @@ fn init_scene(
             ),
             ..default()
         })
-        .insert(ActivePlayerText);
+        .insert(PlayerFactionText);
 
     for (location, location_data) in game_state.data.locations.iter() {
         commands

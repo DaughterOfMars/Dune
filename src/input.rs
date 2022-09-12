@@ -2,7 +2,12 @@ use bevy::{prelude::*, render::camera::Camera};
 use bevy_mod_picking::PickingEvent;
 use iyes_loopless::prelude::IntoConditionalSystem;
 
-use crate::{data::CameraNode, game::state::GameState, lerper::Lerp, Screen};
+use crate::{
+    data::CameraNode,
+    game::state::GameState,
+    lerper::{Lerp, Lerper},
+    Screen,
+};
 
 pub struct GameInputPlugin;
 
@@ -23,8 +28,7 @@ fn debug_restart(keyboard_input: Res<Input<KeyCode>>) {
 }
 
 fn lookaround(
-    mut commands: Commands,
-    camera: Query<Entity, With<Camera>>,
+    mut camera: Query<&mut Lerper, With<Camera>>,
     nodes: Query<&CameraNode>,
     parents: Query<&Parent>,
     mut events: EventReader<PickingEvent>,
@@ -34,13 +38,11 @@ fn lookaround(
             PickingEvent::Selection(_) => (),
             PickingEvent::Hover(_) => (),
             PickingEvent::Clicked(clicked) => {
-                if let Some(camera) = camera.iter().next() {
+                if let Some(mut lerper) = camera.iter_mut().next() {
                     let mut clicked = *clicked;
                     loop {
                         if let Ok(camera_node) = nodes.get(clicked) {
-                            commands
-                                .entity(camera)
-                                .insert(Lerp::move_camera(camera_node.clone(), 1.0));
+                            lerper.set_if_empty(Lerp::move_camera(camera_node.clone(), 1.0));
                             return;
                         } else {
                             if let Ok(parent) = parents.get(clicked).map(|p| p.get()) {
@@ -57,16 +59,13 @@ fn lookaround(
 }
 
 fn camera_reset(
-    mut commands: Commands,
     game_state: Res<GameState>,
     keyboard_input: Res<Input<KeyCode>>,
-    camera: Query<Entity, (With<Camera>, Without<Lerp>)>,
+    mut camera: Query<&mut Lerper, With<Camera>>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Escape) {
-        if let Some(camera) = camera.iter().next() {
-            commands
-                .entity(camera)
-                .insert(Lerp::move_camera(game_state.data.camera_nodes.main, 1.0));
+        if let Some(mut lerper) = camera.iter_mut().next() {
+            lerper.set_if_empty(Lerp::move_camera(game_state.data.camera_nodes.main, 1.0));
         }
     }
 }

@@ -1,18 +1,14 @@
 mod data;
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
-use bevy::prelude::info;
-use derive_more::{Display, From};
 use serde::{Deserialize, Serialize};
 
 pub use self::data::*;
 use super::{Object, ObjectId};
 use crate::{
-    components::{
-        Bonus, Faction, Leader, Location, LocationSector, SpiceCard, StormCard, TraitorCard, TreacheryCard, Troop,
-    },
-    data::{Data, SpiceLocationData},
+    components::{Faction, LocationSector, SpiceCard},
+    data::SpiceLocationData,
     game::phase::{setup::SetupPhase, Phase},
 };
 
@@ -57,6 +53,7 @@ pub enum GameEvent {
         deck_type: DeckType,
     },
     ChooseFaction {
+        player_id: PlayerId,
         faction: Faction,
     },
     ChooseTraitor {
@@ -116,9 +113,9 @@ impl EventReduce for GameState {
             Pass => {
                 return self.play_order.len() == self.players.len();
             }
-            ChooseFaction { .. } => {
+            ChooseFaction { player_id, .. } => {
                 if matches!(self.phase, Phase::Setup(SetupPhase::ChooseFactions)) {
-                    return self.active_player.is_some();
+                    return Some(player_id) == self.active_player.as_ref();
                 }
             }
             ChooseTraitor { player_id, card_id } => {
@@ -305,8 +302,7 @@ impl EventReduce for GameState {
                     self.decks.spice.cards = deck_order.iter().filter_map(|id| map.remove(id)).collect();
                 }
             },
-            ChooseFaction { faction } => {
-                let player_id = self.active_player.unwrap();
+            ChooseFaction { player_id, faction } => {
                 self.players.remove(&player_id);
                 let faction_data = &self.data.factions[&faction];
                 self.factions.insert(faction, player_id);
@@ -513,13 +509,11 @@ impl EventReduce for GameState {
                 match from {
                     DeckType::Traitor => {
                         if let Some(card) = self.decks.traitor.cards.pop() {
-                            info!("Dealt {} to {}", card, player_id);
                             player.traitor_cards.insert(card);
                         }
                     }
                     DeckType::Treachery => {
                         if let Some(card) = self.decks.treachery.cards.pop() {
-                            info!("Dealt {} to {}", card, player_id);
                             player.treachery_cards.insert(card);
                         }
                     }

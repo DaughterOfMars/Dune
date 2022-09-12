@@ -1,7 +1,7 @@
 use std::{collections::HashMap, f32::consts::PI};
 
 use bevy::{
-    math::{Mat4, Vec3, Vec4Swizzles},
+    math::{vec2, Mat4, Vec3, Vec4Swizzles},
     prelude::*,
 };
 use rand::{prelude::SliceRandom, Rng};
@@ -54,12 +54,11 @@ where
     }
 }
 
-pub fn hand_positions(n: i32) -> Vec<Vec2> {
+pub fn hand_positions(n: usize) -> Vec<Vec2> {
     // TODO: Make this radial
-    let res = (0..n)
-        .map(|i| Vec2::new(2.0 * ((1.0 + i as f32) / (1.0 + n as f32)) - 1.0, -0.3))
-        .collect();
-    res
+    (0..n)
+        .map(|i| vec2(2.0 * ((1.0 + i as f32) / (1.0 + n as f32)) - 1.0, -1.1))
+        .collect()
 }
 
 pub fn card_jitter() -> Transform {
