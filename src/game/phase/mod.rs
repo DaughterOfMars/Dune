@@ -5,7 +5,7 @@ pub mod storm;
 
 use bevy::prelude::*;
 use derive_more::Display;
-use iyes_loopless::prelude::{AppLooplessStateExt, IntoConditionalSystem};
+use iyes_loopless::prelude::AppLooplessStateExt;
 use serde::{Deserialize, Serialize};
 
 use self::{
@@ -14,8 +14,11 @@ use self::{
     spice_blow::{SpiceBlowPhase, SpiceBlowPlugin},
     storm::*,
 };
-use super::state::GameState;
-use crate::Screen;
+use super::{
+    state::{GameEvent, GameState},
+    GameEventStage,
+};
+use crate::{network::GameEvents, Screen};
 
 pub struct PhasePlugin;
 
@@ -27,7 +30,7 @@ impl Plugin for PhasePlugin {
             .add_plugin(BiddingPlugin);
 
         app.add_enter_system(Screen::Game, init_phase_text)
-            .add_system(phase_text.run_in_state(Screen::Game));
+            .add_system_to_stage(GameEventStage, phase_text);
     }
 }
 
@@ -118,8 +121,8 @@ fn init_phase_text(mut commands: Commands, asset_server: Res<AssetServer>) {
         .insert(PhaseText);
 }
 
-fn phase_text(game_state: Res<GameState>, mut text: Query<&mut Text, With<PhaseText>>) {
-    if game_state.is_changed() {
+fn phase_text(game_events: Res<GameEvents>, game_state: Res<GameState>, mut text: Query<&mut Text, With<PhaseText>>) {
+    if let Some(GameEvent::AdvancePhase) = game_events.peek() {
         let s = match game_state.phase {
             Phase::Setup(subphase) => match subphase {
                 SetupPhase::ChooseFactions => "Choosing Factions...".to_string(),

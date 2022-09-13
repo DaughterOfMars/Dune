@@ -65,12 +65,13 @@ fn place_spice(
     if let Some(GameEvent::PlaceSpice { location, spice }) = game_events.peek() {
         // TODO: Add spice tokens to board location
         // TODO: stack
-        let (entity, mut lerper) = spice_card.single_mut();
-        lerper.push(Lerp::world_to(
-            Transform::from_translation(vec3(1.5, 0.0049, 0.87)),
-            0.1,
-            0.0,
-        ));
-        commands.entity(entity).remove::<RevealedSpiceCard>();
+        for (entity, mut lerper) in spice_card.iter_mut() {
+            lerper.push(Lerp::world_to(
+                Transform::from_translation(vec3(1.5, 0.0049, 0.87)),
+                0.1,
+                0.0,
+            ));
+            commands.entity(entity).remove::<RevealedSpiceCard>();
+        }
     }
 }

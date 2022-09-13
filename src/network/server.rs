@@ -271,7 +271,7 @@ impl Server {
                 },
                 _ => (),
             },
-            StartRound | Pass => match self.state.phase {
+            StartRound | Pass { .. } => match self.state.phase {
                 Phase::Setup(s) => match s {
                     SetupPhase::ChooseFactions => {
                         if let Some(player_id) = self.state.active_player {
@@ -299,7 +299,7 @@ impl Server {
                                 .units
                                 == 0
                             {
-                                self.generate(Pass)?;
+                                self.generate(Pass { player_id })?;
                             }
                         } else {
                             self.generate(AdvancePhase)?;
@@ -310,19 +310,33 @@ impl Server {
                 Phase::Bidding(s) => match s {
                     BiddingPhase::Bidding => {
                         // If there is a card to bid on
-                        if let Some(bid) = self.state.bidding_cards.last() {
-                            if let Some(player_id) = self.state.active_player.as_ref() {
-                                // If available spice > current bid
+                        if let Some(bid) = self.state.bidding_cards.current() {
+                            if let Some(player_id) = self.state.active_player.clone() {
                                 if let Some(current_bid) = bid.current_bid.as_ref() {
-                                    if self.state.players[player_id].spice > current_bid.spice {
-                                        self.generate(ShowPrompt {
-                                            player_id: *player_id,
-                                            prompt: Prompt::Bid,
-                                        })?;
+                                    if current_bid.player_id == player_id {
+                                        if current_bid.spice > 0 {
+                                            self.generate(WinBid {
+                                                player_id: current_bid.player_id,
+                                                card_id: bid.card.id,
+                                            })?;
+                                            self.generate(StartRound)?;
+                                        } else {
+                                            self.generate(AdvancePhase)?;
+                                        }
+                                    } else {
+                                        if self.state.players[&player_id].spice > current_bid.spice {
+                                            self.generate(ShowPrompt {
+                                                player_id,
+                                                prompt: Prompt::Bid,
+                                            })?;
+                                        } else {
+                                            self.generate(Pass { player_id })?;
+                                        }
                                     }
                                 } else {
+                                    self.generate(MakeBid { player_id, spice: 0 })?;
                                     self.generate(ShowPrompt {
-                                        player_id: *player_id,
+                                        player_id,
                                         prompt: Prompt::Bid,
                                     })?;
                                 }
@@ -362,7 +376,7 @@ impl Server {
                         spawn_type: SpawnType::Troop { player_id, unit },
                     })?;
                 }
-                self.generate(Pass)?;
+                self.generate(Pass { player_id })?;
             }
             ChooseTraitor { player_id, card_id } => {
                 // Discard the cards that weren't picked
@@ -378,7 +392,7 @@ impl Server {
                         to: DeckType::Traitor,
                     })?;
                 }
-                self.generate(Pass)?;
+                self.generate(Pass { player_id })?;
             }
             MakeFactionPrediction { .. } => {
                 self.generate(ShowPrompt {
@@ -391,16 +405,19 @@ impl Server {
             }
             ShipForces { .. } => {
                 if matches!(self.state.phase, Phase::Setup(SetupPhase::PlaceForces)) {
-                    if let Some(player_id) = &self.state.active_player {
-                        let player = &self.state.players[player_id];
+                    if let Some(player_id) = self.state.active_player {
+                        let player = &self.state.players[&player_id];
                         let faction_data = &self.data.factions[&player.faction];
                         if player.offworld_forces.len() == 20 - faction_data.starting_values.units as usize {
-                            self.generate(Pass)?;
+                            self.generate(Pass { player_id })?;
                         }
                     }
                 } else {
                     // TODO: shipping during ship n' move
                 }
+            }
+            MakeBid { player_id, .. } => {
+                self.generate(Pass { player_id })?;
             }
             _ => (),
         }

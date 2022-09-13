@@ -16,7 +16,9 @@ use self::{
     state::{DeckType, EventReduce, GameEvent, GameState, PlayerId, SpawnType},
 };
 use crate::{
-    components::{FactionChoiceCard, FactionPredictionCard, LocationSector, TraitorCard, Troop, TurnPredictionCard},
+    components::{
+        FactionChoiceCard, FactionPredictionCard, LocationSector, TraitorCard, TreacheryCard, Troop, TurnPredictionCard,
+    },
     data::Data,
     lerper::{Lerp, Lerper, UITransform},
     network::{GameEvents, SendEvent},
@@ -38,6 +40,7 @@ impl Plugin for GamePlugin {
             .add_event::<PickedEvent<FactionPredictionCard>>()
             .add_event::<PickedEvent<TurnPredictionCard>>()
             .add_event::<PickedEvent<TraitorCard>>()
+            .add_event::<PickedEvent<TreacheryCard>>()
             .add_event::<PickedEvent<LocationSector>>();
 
         app.add_system_set(
@@ -47,6 +50,7 @@ impl Plugin for GamePlugin {
                 .with_system(hiararchy_picker::<FactionPredictionCard>)
                 .with_system(hiararchy_picker::<TurnPredictionCard>)
                 .with_system(hiararchy_picker::<TraitorCard>)
+                .with_system(hiararchy_picker::<TreacheryCard>)
                 .with_system(hiararchy_picker::<LocationSector>)
                 .with_system(ship_troop_input)
                 .with_system(game_event_pauser)
@@ -404,7 +408,12 @@ fn hand(
     object_entity: Res<ObjectEntityMap>,
     my_id: Res<PlayerId>,
 ) {
-    if let Some(GameEvent::DealCard { player_id, .. } | GameEvent::DiscardCard { player_id, .. }) = game_events.peek() {
+    if let Some(
+        GameEvent::DealCard { player_id, .. }
+        | GameEvent::DiscardCard { player_id, .. }
+        | GameEvent::WinBid { player_id, .. },
+    ) = game_events.peek()
+    {
         if *my_id == *player_id {
             if let Some(player) = game_state.players.get(&my_id) {
                 let hand = player

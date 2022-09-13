@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use bevy::prelude::{Deref, DerefMut};
 use derive_more::{Display, From};
 use serde::{Deserialize, Serialize};
 
@@ -30,7 +31,7 @@ pub struct GameState {
     pub board: HashMap<Location, LocationState>,
     pub storm_sector: u8,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub bidding_cards: Vec<BidState>,
+    pub bidding_cards: BidStates,
     pub nexus: Option<Object<SpiceCard>>,
     pub bg_predictions: BeneGesseritPredictions,
     pub storm_card: Option<Object<StormCard>>,
@@ -61,12 +62,26 @@ pub struct Bid {
     pub spice: u8,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Deref, DerefMut)]
+pub struct BidStates {
+    pub bidding_cards: Vec<BidState>,
+}
+
+impl BidStates {
+    pub fn current(&self) -> Option<&BidState> {
+        self.bidding_cards.last()
+    }
+
+    pub fn win(&mut self) -> Option<BidState> {
+        self.bidding_cards.pop()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BidState {
     pub card: Object<TreacheryCard>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_bid: Option<Bid>,
-    pub passed: HashSet<PlayerId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

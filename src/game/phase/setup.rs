@@ -333,6 +333,7 @@ fn faction_prediction(
     mut client: ResMut<RenetClient>,
     mut picked_events: EventReader<PickedEvent<FactionPredictionCard>>,
     cards: Query<Entity, With<FactionPredictionCard>>,
+    my_id: Res<PlayerId>,
 ) {
     for PickedEvent {
         picked: _,
@@ -343,7 +344,10 @@ fn faction_prediction(
             // TODO: animate them away~
             commands.entity(entity).despawn_recursive();
         }
-        client.send_event(GameEvent::MakeFactionPrediction { faction: *faction });
+        client.send_event(GameEvent::MakeFactionPrediction {
+            player_id: *my_id,
+            faction: *faction,
+        });
     }
 }
 
@@ -352,6 +356,7 @@ fn turn_prediction(
     mut client: ResMut<RenetClient>,
     mut picked_events: EventReader<PickedEvent<TurnPredictionCard>>,
     cards: Query<Entity, With<TurnPredictionCard>>,
+    my_id: Res<PlayerId>,
 ) {
     for PickedEvent {
         picked: _,
@@ -362,7 +367,10 @@ fn turn_prediction(
             // TODO: animate them away~
             commands.entity(entity).despawn_recursive();
         }
-        client.send_event(GameEvent::MakeTurnPrediction { turn: *turn });
+        client.send_event(GameEvent::MakeTurnPrediction {
+            player_id: *my_id,
+            turn: *turn,
+        });
     }
 }
 

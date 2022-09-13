@@ -2,6 +2,7 @@ mod data;
 
 use std::collections::HashSet;
 
+use bevy::prelude::info;
 use serde::{Deserialize, Serialize};
 
 pub use self::data::*;
@@ -26,7 +27,9 @@ pub enum GameEvent {
     SetActive {
         player_id: PlayerId,
     },
-    Pass,
+    Pass {
+        player_id: PlayerId,
+    },
     StartRound,
     AdvancePhase,
     SpawnObject {
@@ -61,9 +64,11 @@ pub enum GameEvent {
         card_id: ObjectId,
     },
     MakeFactionPrediction {
+        player_id: PlayerId,
         faction: Faction,
     },
     MakeTurnPrediction {
+        player_id: PlayerId,
         turn: u8,
     },
     CollectSpice {
@@ -101,7 +106,7 @@ pub enum GameEvent {
     StartBidding,
     MakeBid {
         player_id: PlayerId,
-        spice: Option<u8>,
+        spice: u8,
     },
     WinBid {
         player_id: PlayerId,
@@ -126,9 +131,7 @@ impl EventReduce for GameState {
     fn validate(&self, data: &Data, event: &Self::Event) -> bool {
         use GameEvent::*;
         match event {
-            Pass => {
-                return self.play_order.len() == self.players.len();
-            }
+            Pass { player_id } => return Some(player_id) == self.active_player.as_ref(),
             ChooseFaction { player_id, .. } => {
                 if matches!(self.phase, Phase::Setup(SetupPhase::ChooseFactions)) {
                     return Some(player_id) == self.active_player.as_ref();
@@ -143,15 +146,23 @@ impl EventReduce for GameState {
                     }
                 }
             }
-            MakeFactionPrediction { faction } => {
-                return matches!(self.phase, Phase::Setup(SetupPhase::Prediction))
-                    && self.factions.contains_key(&Faction::BeneGesserit)
-                    && self.players.values().find(|p| p.faction == *faction).is_some();
+            MakeFactionPrediction { player_id, faction } => {
+                if matches!(self.phase, Phase::Setup(SetupPhase::Prediction)) {
+                    if let Some(player) = self.players.get(player_id) {
+                        if player.faction == Faction::BeneGesserit {
+                            return self.players.values().any(|player| &player.faction == faction);
+                        }
+                    }
+                }
             }
-            MakeTurnPrediction { turn } => {
-                return matches!(self.phase, Phase::Setup(SetupPhase::Prediction))
-                    && self.factions.contains_key(&Faction::BeneGesserit)
-                    && *turn < 15;
+            MakeTurnPrediction { player_id, turn } => {
+                if matches!(self.phase, Phase::Setup(SetupPhase::Prediction)) {
+                    if let Some(player) = self.players.get(player_id) {
+                        if player.faction == Faction::BeneGesserit {
+                            return *turn < 15;
+                        }
+                    }
+                }
             }
             Bribe {
                 player_id,
@@ -189,22 +200,9 @@ impl EventReduce for GameState {
             }
             MakeBid { player_id, spice } => {
                 if Some(player_id) == self.active_player.as_ref() {
-                    if let Some(bid_state) = self.bidding_cards.last() {
+                    if let Some(bid_state) = self.bidding_cards.current() {
                         if let Some(current_bid) = &bid_state.current_bid {
-                            if let Some(spice) = spice {
-                                return *spice > current_bid.spice;
-                            } else {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-            WinBid { player_id, card_id } => {
-                if let Some(bid_state) = self.bidding_cards.last() {
-                    if bid_state.passed.len() == self.players.len() && !bid_state.passed.contains(player_id) {
-                        if let Some(current_bid) = &bid_state.current_bid {
-                            return &bid_state.card.id == card_id && &current_bid.player_id == player_id;
+                            return *spice > current_bid.spice;
                         }
                     }
                 }
@@ -246,6 +244,7 @@ impl EventReduce for GameState {
             StartRound => (),
             PlaceSpice { .. } => (),
             RideTheWorm { .. } => (),
+            WinBid { .. } => (),
         }
         false
     }
@@ -343,25 +342,23 @@ impl EventReduce for GameState {
             ChooseTraitor { player_id, .. } => {
                 self.prompts.remove(&player_id);
             }
-            MakeFactionPrediction { faction } => {
+            MakeFactionPrediction { faction, .. } => {
                 self.prompts.remove(&self.factions[&Faction::BeneGesserit]);
                 self.bg_predictions.faction.replace(faction);
             }
-            MakeTurnPrediction { turn } => {
+            MakeTurnPrediction { turn, .. } => {
                 self.prompts.remove(&self.factions[&Faction::BeneGesserit]);
                 self.bg_predictions.turn.replace(turn);
             }
             SetActive { player_id } => {
                 self.active_player.replace(player_id);
             }
-            Pass => {
-                if let Some(player_id) = &self.active_player {
-                    let current_turn = self.play_order.iter().position(|id| player_id == id).unwrap();
-                    if current_turn + 1 == self.play_order.len() {
-                        self.active_player.take();
-                    } else {
-                        self.active_player.replace(self.play_order[current_turn + 1]);
-                    }
+            Pass { player_id } => {
+                let current_turn = self.play_order.iter().position(|id| &player_id == id).unwrap();
+                if current_turn + 1 == self.play_order.len() {
+                    self.active_player.take();
+                } else {
+                    self.active_player.replace(self.play_order[current_turn + 1]);
                 }
             }
             StartRound => {
@@ -494,23 +491,21 @@ impl EventReduce for GameState {
                         self.bidding_cards.push(BidState {
                             card,
                             current_bid: Default::default(),
-                            passed: Default::default(),
                         });
                     }
                 }
             }
             MakeBid { player_id, spice } => {
                 if let Some(bid_state) = self.bidding_cards.last_mut() {
-                    if let Some(spice) = spice {
-                        bid_state.current_bid.replace(Bid { player_id, spice });
-                        bid_state.passed.remove(&player_id);
-                    } else {
-                        bid_state.passed.insert(player_id);
-                    }
+                    info!(
+                        "{} made bid on {} for {} spice",
+                        self.players[&player_id].faction, bid_state.card, spice
+                    );
+                    bid_state.current_bid.replace(Bid { player_id, spice });
                 }
             }
-            WinBid { player_id, card_id } => {
-                let bid_state = self.bidding_cards.pop().unwrap();
+            WinBid { player_id, .. } => {
+                let bid_state = self.bidding_cards.win().unwrap();
                 self.players
                     .get_mut(&player_id)
                     .unwrap()
