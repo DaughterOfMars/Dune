@@ -69,7 +69,7 @@ fn place_spice(
         lerper.push(Lerp::world_to(
             Transform::from_translation(vec3(1.5, 0.0049, 0.87)),
             0.1,
-            1.0,
+            0.0,
         ));
         commands.entity(entity).remove::<RevealedSpiceCard>();
     }

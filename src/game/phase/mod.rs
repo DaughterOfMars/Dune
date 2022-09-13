@@ -9,7 +9,7 @@ use iyes_loopless::prelude::{AppLooplessStateExt, IntoConditionalSystem};
 use serde::{Deserialize, Serialize};
 
 use self::{
-    bidding::BiddingPhase,
+    bidding::{BiddingPhase, BiddingPlugin},
     setup::*,
     spice_blow::{SpiceBlowPhase, SpiceBlowPlugin},
     storm::*,
@@ -23,7 +23,8 @@ impl Plugin for PhasePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugin(SetupPlugin)
             .add_plugin(StormPlugin)
-            .add_plugin(SpiceBlowPlugin);
+            .add_plugin(SpiceBlowPlugin)
+            .add_plugin(BiddingPlugin);
 
         app.add_enter_system(Screen::Game, init_phase_text)
             .add_system(phase_text.run_in_state(Screen::Game));

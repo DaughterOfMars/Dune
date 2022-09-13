@@ -61,7 +61,7 @@ fn move_storm(game_events: Res<GameEvents>, mut storm_cards: Query<&mut Lerper, 
             lerper.push(Lerp::world_to(
                 Transform::from_translation(vec3(1.5, 0.0049, 0.87)),
                 0.1,
-                1.0,
+                0.0,
             ));
         }
     }

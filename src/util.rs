@@ -61,6 +61,21 @@ pub fn hand_positions(n: usize) -> Vec<Vec2> {
         .collect()
 }
 
+pub fn bid_positions(n: usize) -> Vec<Vec2> {
+    (0..n)
+        .map(|i| {
+            vec2(
+                2.0 * ((1.0 + (i % 3) as f32) / 3.0) - 1.0,
+                if n > 3 {
+                    -2.0 * ((1.0 + (i / 3) as f32) / 3.0) + 1.0
+                } else {
+                    0.0
+                },
+            )
+        })
+        .collect()
+}
+
 pub fn card_jitter() -> Transform {
     Transform::from_translation(Vec3::X * rand::random::<f32>() * 0.001)
         * Transform::from_translation(Vec3::Z * rand::random::<f32>() * 0.001)
