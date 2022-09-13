@@ -1,4 +1,6 @@
+pub mod bidding;
 pub mod setup;
+pub mod spice_blow;
 pub mod storm;
 
 use bevy::prelude::*;
@@ -6,7 +8,12 @@ use derive_more::Display;
 use iyes_loopless::prelude::{AppLooplessStateExt, IntoConditionalSystem};
 use serde::{Deserialize, Serialize};
 
-use self::{setup::*, storm::*};
+use self::{
+    bidding::BiddingPhase,
+    setup::*,
+    spice_blow::{SpiceBlowPhase, SpiceBlowPlugin},
+    storm::*,
+};
 use super::state::GameState;
 use crate::Screen;
 
@@ -14,7 +21,9 @@ pub struct PhasePlugin;
 
 impl Plugin for PhasePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugin(SetupPlugin);
+        app.add_plugin(SetupPlugin)
+            .add_plugin(StormPlugin)
+            .add_plugin(SpiceBlowPlugin);
 
         app.add_enter_system(Screen::Game, init_phase_text)
             .add_system(phase_text.run_in_state(Screen::Game));
@@ -25,9 +34,9 @@ impl Plugin for PhasePlugin {
 pub enum Phase {
     Setup(SetupPhase),
     Storm(StormPhase),
-    SpiceBlow,
+    SpiceBlow(SpiceBlowPhase),
     Nexus,
-    Bidding,
+    Bidding(BiddingPhase),
     Revival,
     Movement,
     Battle,
@@ -51,11 +60,18 @@ impl Phase {
                 StormPhase::Reveal => Phase::Storm(StormPhase::WeatherControl),
                 StormPhase::WeatherControl => Phase::Storm(StormPhase::FamilyAtomics),
                 StormPhase::FamilyAtomics => Phase::Storm(StormPhase::MoveStorm),
-                StormPhase::MoveStorm => Phase::SpiceBlow,
+                StormPhase::MoveStorm => Phase::SpiceBlow(SpiceBlowPhase::Reveal),
             },
-            Phase::SpiceBlow => Phase::Nexus,
-            Phase::Nexus => Phase::Bidding,
-            Phase::Bidding => Phase::Revival,
+            Phase::SpiceBlow(subphase) => match subphase {
+                SpiceBlowPhase::Reveal => Phase::SpiceBlow(SpiceBlowPhase::ShaiHalud),
+                SpiceBlowPhase::ShaiHalud => Phase::SpiceBlow(SpiceBlowPhase::PlaceSpice),
+                SpiceBlowPhase::PlaceSpice => Phase::Nexus,
+            },
+            Phase::Nexus => Phase::Bidding(BiddingPhase::DealCards),
+            Phase::Bidding(subphase) => match subphase {
+                BiddingPhase::DealCards => Phase::Bidding(BiddingPhase::Bidding),
+                BiddingPhase::Bidding => Phase::Revival,
+            },
             Phase::Revival => Phase::Movement,
             Phase::Movement => Phase::Battle,
             Phase::Battle => Phase::Collection,
@@ -113,9 +129,9 @@ fn phase_text(game_state: Res<GameState>, mut text: Query<&mut Text, With<PhaseT
                 SetupPhase::DealTreachery => "Dealing Treachery Cards...".to_string(),
             },
             Phase::Storm(_) => "Storm Phase".to_string(),
-            Phase::SpiceBlow => "Spice Blow Phase".to_string(),
+            Phase::SpiceBlow(_) => "Spice Blow Phase".to_string(),
             Phase::Nexus => "Nexus Phase".to_string(),
-            Phase::Bidding => "Bidding Phase".to_string(),
+            Phase::Bidding(_) => "Bidding Phase".to_string(),
             Phase::Revival => "Revival Phase".to_string(),
             Phase::Movement => "Movement Phase".to_string(),
             Phase::Battle => "Battle Phase".to_string(),

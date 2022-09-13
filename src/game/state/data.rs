@@ -31,9 +31,10 @@ pub struct GameState {
     pub storm_sector: u8,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub bidding_cards: Vec<BidState>,
-    pub nexus: bool,
+    pub nexus: Option<Object<SpiceCard>>,
     pub bg_predictions: BeneGesseritPredictions,
     pub storm_card: Option<Object<StormCard>>,
+    pub spice_card: Option<Object<SpiceCard>>,
     pub history: VecDeque<GameEvent>,
 }
 
@@ -75,6 +76,7 @@ pub enum Prompt {
     FactionPrediction,
     TurnPrediction,
     GuildShip,
+    Bid,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

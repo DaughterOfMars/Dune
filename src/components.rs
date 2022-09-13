@@ -160,6 +160,12 @@ pub enum Location {
     PolarSink,
 }
 
+impl Location {
+    pub fn with_sector(self, sector: u8) -> LocationSector {
+        LocationSector { location: self, sector }
+    }
+}
+
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display, Hash, Component)]
 pub enum Terrain {
     Sand,

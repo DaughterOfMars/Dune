@@ -2,7 +2,7 @@ mod object;
 pub mod phase;
 pub mod state;
 
-use std::f32::consts::PI;
+use std::{f32::consts::PI, time::Duration};
 
 use bevy::{ecs::schedule::ShouldRun, math::vec3, prelude::*};
 use bevy_mod_picking::{PickableBundle, PickingEvent};
@@ -31,7 +31,8 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ObjectEntityMap>();
+        app.init_resource::<ObjectEntityMap>()
+            .init_resource::<GameEventPauser>();
 
         app.add_event::<PickedEvent<FactionChoiceCard>>()
             .add_event::<PickedEvent<FactionPredictionCard>>()
@@ -48,6 +49,7 @@ impl Plugin for GamePlugin {
                 .with_system(hiararchy_picker::<TraitorCard>)
                 .with_system(hiararchy_picker::<LocationSector>)
                 .with_system(ship_troop_input)
+                .with_system(game_event_pauser)
                 .into(),
         );
 
@@ -80,8 +82,35 @@ fn pull_events(mut game_events: ResMut<GameEvents>) {
     game_events.next();
 }
 
-pub fn check_for_event(game_events: Res<GameEvents>) -> ShouldRun {
-    if game_events.peek().is_some() {
+#[derive(Debug, Default)]
+pub struct GameEventPauser {
+    pub paused: bool,
+    pub duration: Option<Duration>,
+}
+
+impl GameEventPauser {
+    pub fn pause_for(&mut self, duration: Duration) {
+        info!("Pausing");
+        self.paused = true;
+        self.duration.replace(duration);
+    }
+}
+
+fn game_event_pauser(mut pause: ResMut<GameEventPauser>, time: Res<Time>) {
+    if pause.paused {
+        if let Some(duration) = &mut pause.duration {
+            *duration = duration.saturating_sub(time.delta());
+            if duration.is_zero() {
+                info!("Unpausing");
+                pause.duration.take();
+                pause.paused = false;
+            }
+        }
+    }
+}
+
+fn check_for_event(game_events: Res<GameEvents>, pause: Res<GameEventPauser>) -> ShouldRun {
+    if !pause.paused && game_events.peek().is_some() {
         ShouldRun::YesAndCheckAgain
     } else {
         ShouldRun::No
@@ -421,6 +450,7 @@ fn ship_troop_input(
                 if keyboard_input.pressed(KeyCode::LShift) {
                     if let Some(force) = player.offworld_forces.iter().find(|t| t.inner.is_special) {
                         let event = GameEvent::ShipForces {
+                            player_id: *my_id,
                             to: *inner,
                             forces: hashset!(force.id),
                         };
@@ -428,6 +458,7 @@ fn ship_troop_input(
                     }
                 } else if let Some(force) = player.offworld_forces.iter().find(|t| !t.inner.is_special) {
                     let event = GameEvent::ShipForces {
+                        player_id: *my_id,
                         to: *inner,
                         forces: hashset!(force.id),
                     };
@@ -445,7 +476,12 @@ fn ship_forces(
     object_entity: Res<ObjectEntityMap>,
     mut troops: Query<&mut Lerper, With<Troop>>,
 ) {
-    if let Some(GameEvent::ShipForces { to, forces }) = game_events.peek() {
+    if let Some(GameEvent::ShipForces {
+        player_id: _,
+        to,
+        forces,
+    }) = game_events.peek()
+    {
         let idx = game_state.board[&to.location].sectors[&to.sector].forces.len();
         let node = data.locations[&to.location].sectors[&to.sector].fighters[idx];
         for entity in forces.iter().filter_map(|id| object_entity.world.get(id)) {

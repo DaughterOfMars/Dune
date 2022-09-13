@@ -6,10 +6,10 @@ use strum::IntoEnumIterator;
 
 use super::*;
 use crate::{
-    components::{Faction, Leader, StormCard, TraitorCard, Troop},
-    data::Data,
+    components::{Faction, Leader, SpiceCard, StormCard, TraitorCard, Troop},
+    data::{Data, SpiceLocationData},
     game::{
-        phase::{setup::SetupPhase, storm::StormPhase, Phase},
+        phase::{bidding::BiddingPhase, setup::SetupPhase, spice_blow::SpiceBlowPhase, storm::StormPhase, Phase},
         state::{DeckType, Prompt, SpawnType},
         Object, ObjectIdGenerator,
     },
@@ -218,6 +218,57 @@ impl Server {
                         self.generate(AdvancePhase)?;
                     }
                 },
+                Phase::SpiceBlow(s) => match s {
+                    SpiceBlowPhase::Reveal => {
+                        loop {
+                            self.generate(RevealSpiceBlow)?;
+                            match self.state.spice_card.as_ref().unwrap().inner {
+                                SpiceCard::ShaiHalud => (),
+                                _ => {
+                                    break;
+                                }
+                            }
+                        }
+                        self.generate(AdvancePhase)?;
+                    }
+                    SpiceBlowPhase::ShaiHalud => {
+                        if let Some(nexus_card) = self.state.nexus.as_ref() {
+                            let SpiceLocationData { location, .. } =
+                                self.data.spice_cards[&nexus_card.inner].location_data.unwrap();
+                            self.generate(RideTheWorm { location })?;
+                        }
+                        self.generate(AdvancePhase)?;
+                    }
+                    SpiceBlowPhase::PlaceSpice => {
+                        if let Some(spice_card) = self.state.spice_card.as_ref() {
+                            let SpiceLocationData {
+                                location,
+                                sector,
+                                spice,
+                            } = self.data.spice_cards[&spice_card.inner].location_data.unwrap();
+                            self.generate(PlaceSpice {
+                                location: location.with_sector(sector),
+                                spice,
+                            })?;
+                        }
+                        self.generate(AdvancePhase)?;
+                    }
+                },
+                Phase::Nexus => {
+                    if self.state.nexus.is_some() {
+                        // TODO: hold the nexus
+                    }
+                    self.generate(AdvancePhase)?;
+                }
+                Phase::Bidding(s) => match s {
+                    BiddingPhase::DealCards => {
+                        self.generate(StartBidding)?;
+                        self.generate(AdvancePhase)?;
+                    }
+                    BiddingPhase::Bidding => {
+                        self.generate(StartRound)?;
+                    }
+                },
                 _ => (),
             },
             StartRound | Pass => match self.state.phase {
@@ -249,6 +300,34 @@ impl Server {
                                 == 0
                             {
                                 self.generate(Pass)?;
+                            }
+                        } else {
+                            self.generate(AdvancePhase)?;
+                        }
+                    }
+                    _ => (),
+                },
+                Phase::Bidding(s) => match s {
+                    BiddingPhase::Bidding => {
+                        // If there is a card to bid on
+                        if let Some(bid) = self.state.bidding_cards.last() {
+                            if let Some(player_id) = self.state.active_player.as_ref() {
+                                // If available spice > current bid
+                                if let Some(current_bid) = bid.current_bid.as_ref() {
+                                    if self.state.players[player_id].spice > current_bid.spice {
+                                        self.generate(ShowPrompt {
+                                            player_id: *player_id,
+                                            prompt: Prompt::Bid,
+                                        })?;
+                                    }
+                                } else {
+                                    self.generate(ShowPrompt {
+                                        player_id: *player_id,
+                                        prompt: Prompt::Bid,
+                                    })?;
+                                }
+                            } else {
+                                self.generate(StartRound)?;
                             }
                         } else {
                             self.generate(AdvancePhase)?;

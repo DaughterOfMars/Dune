@@ -16,7 +16,7 @@ impl ObjectId {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct Object<T> {
     pub id: ObjectId,
     pub inner: T,

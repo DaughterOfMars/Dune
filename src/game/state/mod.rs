@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 pub use self::data::*;
 use super::{Object, ObjectId};
 use crate::{
-    components::{Faction, LocationSector, SpiceCard},
-    data::{Data, SpiceLocationData},
+    components::{Faction, Location, LocationSector, SpiceCard},
+    data::Data,
     game::phase::{setup::SetupPhase, Phase},
 };
 
@@ -77,10 +77,12 @@ pub enum GameEvent {
         spice: u8,
     },
     ShipForces {
+        player_id: PlayerId,
         to: LocationSector,
         forces: HashSet<ObjectId>,
     },
     MoveForces {
+        player_id: PlayerId,
         path: Vec<LocationSector>,
         forces: HashSet<ObjectId>,
     },
@@ -88,17 +90,30 @@ pub enum GameEvent {
     MoveStorm {
         sectors: u8,
     },
-    SpiceBlow,
+    RevealSpiceBlow,
+    PlaceSpice {
+        location: LocationSector,
+        spice: u8,
+    },
+    RideTheWorm {
+        location: Location,
+    },
     StartBidding,
     MakeBid {
+        player_id: PlayerId,
         spice: Option<u8>,
     },
+    WinBid {
+        player_id: PlayerId,
+        card_id: ObjectId,
+    },
     Revive {
+        player_id: PlayerId,
         forces: HashSet<ObjectId>,
         leader: Option<ObjectId>,
     },
     SetBattlePlan {
-        player: PlayerId,
+        player_id: PlayerId,
         forces: u8,
         leader: Option<ObjectId>,
         treachery_cards: Vec<ObjectId>,
@@ -145,8 +160,8 @@ impl EventReduce for GameState {
             } => {
                 todo!()
             }
-            ShipForces { to, forces } => {
-                if let Some(player_id) = &self.active_player {
+            ShipForces { player_id, to, forces } => {
+                if Some(player_id) == self.active_player.as_ref() {
                     let player = &self.players[player_id];
                     if forces.iter().all(|id| player.offworld_forces.contains(id)) {
                         if matches!(self.phase, Phase::Setup(SetupPhase::PlaceForces)) {
@@ -165,17 +180,44 @@ impl EventReduce for GameState {
                     }
                 }
             }
-            MoveForces { path, forces } => {
+            MoveForces {
+                player_id,
+                path,
+                forces,
+            } => {
                 todo!()
             }
-            MakeBid { spice } => {
-                todo!()
+            MakeBid { player_id, spice } => {
+                if Some(player_id) == self.active_player.as_ref() {
+                    if let Some(bid_state) = self.bidding_cards.last() {
+                        if let Some(current_bid) = &bid_state.current_bid {
+                            if let Some(spice) = spice {
+                                return *spice > current_bid.spice;
+                            } else {
+                                return true;
+                            }
+                        }
+                    }
+                }
             }
-            Revive { forces, leader } => {
+            WinBid { player_id, card_id } => {
+                if let Some(bid_state) = self.bidding_cards.last() {
+                    if bid_state.passed.len() == self.players.len() && !bid_state.passed.contains(player_id) {
+                        if let Some(current_bid) = &bid_state.current_bid {
+                            return &bid_state.card.id == card_id && &current_bid.player_id == player_id;
+                        }
+                    }
+                }
+            }
+            Revive {
+                player_id,
+                forces,
+                leader,
+            } => {
                 todo!()
             }
             SetBattlePlan {
-                player,
+                player_id,
                 forces,
                 leader,
                 treachery_cards,
@@ -198,10 +240,12 @@ impl EventReduce for GameState {
             StartBidding => (),
             RevealStorm => (),
             MoveStorm { .. } => (),
-            SpiceBlow => (),
+            RevealSpiceBlow => (),
             CollectSpice { .. } => (),
             SpawnObject { .. } => (),
             StartRound => (),
+            PlaceSpice { .. } => (),
+            RideTheWorm { .. } => (),
         }
         false
     }
@@ -343,7 +387,7 @@ impl EventReduce for GameState {
                 self.players.get_mut(&player_id).unwrap().spice -= spice;
                 self.players.get_mut(&other_player_id).unwrap().spice += spice;
             }
-            ShipForces { to, forces } => {
+            ShipForces { player_id, to, forces } => {
                 let sector = self
                     .board
                     .entry(to.location)
@@ -354,13 +398,17 @@ impl EventReduce for GameState {
                     .forces
                     .entry(self.active_player.unwrap())
                     .or_default();
-                let player = self.players.get_mut(self.active_player.as_ref().unwrap()).unwrap();
+                let player = self.players.get_mut(&player_id).unwrap();
                 for force_id in forces {
                     sector.forces.insert(player.offworld_forces.take(&force_id).unwrap());
                 }
                 player.shipped = true;
             }
-            MoveForces { path, forces } => {
+            MoveForces {
+                player_id: _,
+                path,
+                forces,
+            } => {
                 let (from, to) = (path.first().unwrap(), path.last().unwrap());
                 let from = self
                     .board
@@ -397,50 +445,46 @@ impl EventReduce for GameState {
                     self.decks.storm.add(storm_card);
                 }
             }
-            SpiceBlow => {
-                let mut nexus = None;
-                loop {
-                    let card = self.decks.spice.draw().unwrap();
-                    match card.inner {
-                        SpiceCard::ShaiHalud => {
-                            nexus = self.decks.spice.last_discarded().map(|card| card.id);
-                        }
-                        _ => {
-                            if let Some(nexus_card) = nexus.and_then(|id| self.decks.spice.get(id)) {
-                                self.nexus = true;
-                                let SpiceLocationData { location, .. } =
-                                    data.spice_cards[&nexus_card.inner].location_data.unwrap();
-                                for forces in self
-                                    .board
-                                    .get_mut(&location)
-                                    .unwrap()
-                                    .sectors
-                                    .drain()
-                                    .map(|(_, s)| s.forces)
-                                {
-                                    for (player_id, Forces { forces }) in forces {
-                                        let tanks = &mut self.players.get_mut(&player_id).unwrap().tanks;
-                                        tanks.forces.extend(forces);
-                                    }
-                                }
-                            }
-                            let SpiceLocationData {
-                                location,
-                                sector,
-                                spice,
-                            } = data.spice_cards[&card.inner].location_data.unwrap();
-                            if self.storm_sector != sector {
-                                self.board
-                                    .entry(location)
-                                    .or_default()
-                                    .sectors
-                                    .entry(sector)
-                                    .or_default()
-                                    .spice += spice;
-                            }
-                            self.decks.spice.discard(card);
-                            break;
-                        }
+            RevealSpiceBlow => {
+                let card = self.decks.spice.draw().unwrap();
+                if let SpiceCard::ShaiHalud = &card.inner {
+                    if self.game_turn > 0 && self.nexus.is_none() {
+                        self.nexus = self.decks.spice.last_discarded().cloned();
+                    }
+                }
+                if let Some(old_card) = self.spice_card.replace(card) {
+                    self.decks.spice.discard(old_card);
+                }
+            }
+            PlaceSpice {
+                location: LocationSector { location, sector },
+                spice,
+            } => {
+                if let Some(spice_card) = self.spice_card.take() {
+                    self.decks.spice.discard(spice_card);
+                }
+                if self.storm_sector != sector {
+                    self.board
+                        .entry(location)
+                        .or_default()
+                        .sectors
+                        .entry(sector)
+                        .or_default()
+                        .spice += spice;
+                }
+            }
+            RideTheWorm { location } => {
+                for forces in self
+                    .board
+                    .get_mut(&location)
+                    .unwrap()
+                    .sectors
+                    .drain()
+                    .map(|(_, s)| s.forces)
+                {
+                    for (player_id, Forces { forces }) in forces {
+                        let tanks = &mut self.players.get_mut(&player_id).unwrap().tanks;
+                        tanks.forces.extend(forces);
                     }
                 }
             }
@@ -455,19 +499,29 @@ impl EventReduce for GameState {
                     }
                 }
             }
-            MakeBid { spice } => {
-                let player_id = self.active_player.unwrap();
-                if let Some(spice) = spice {
-                    self.bidding_cards
-                        .first_mut()
-                        .unwrap()
-                        .current_bid
-                        .replace(Bid { player_id, spice });
-                } else {
-                    self.bidding_cards.first_mut().unwrap().passed.insert(player_id);
+            MakeBid { player_id, spice } => {
+                if let Some(bid_state) = self.bidding_cards.last_mut() {
+                    if let Some(spice) = spice {
+                        bid_state.current_bid.replace(Bid { player_id, spice });
+                        bid_state.passed.remove(&player_id);
+                    } else {
+                        bid_state.passed.insert(player_id);
+                    }
                 }
             }
-            Revive { forces, leader } => {
+            WinBid { player_id, card_id } => {
+                let bid_state = self.bidding_cards.pop().unwrap();
+                self.players
+                    .get_mut(&player_id)
+                    .unwrap()
+                    .treachery_cards
+                    .insert(bid_state.card);
+            }
+            Revive {
+                player_id,
+                forces,
+                leader,
+            } => {
                 let player = self.players.get_mut(self.active_player.as_ref().unwrap()).unwrap();
                 if let Some(leader) = leader {
                     player
@@ -479,7 +533,7 @@ impl EventReduce for GameState {
                     .extend(player.tanks.forces.drain_filter(|f| forces.contains(&f.id)));
             }
             SetBattlePlan {
-                player,
+                player_id,
                 forces,
                 leader,
                 treachery_cards,
